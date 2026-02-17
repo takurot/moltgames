@@ -1,0 +1,20 @@
+{
+  "name": "@moltgames/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@moltgames/domain": "workspace:*",
+    "@moltgames/mcp-protocol": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:unit": "vitest run --passWithNoTests test/unit",
+    "test:integration": "vitest run --passWithNoTests test/integration",
+    "test:e2e": "vitest run --passWithNoTests test/e2e"
+  }
+}

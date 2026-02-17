@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@moltgames/domain": ["../domain/src/index"]
+    },
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [{ "path": "../domain" }],
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "test"]
+}
