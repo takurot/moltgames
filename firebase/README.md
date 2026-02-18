@@ -18,7 +18,6 @@ firebase emulators:start --config firebase/firebase.json
 - Auth: `9099`
 - Firestore: `8088`
 - Storage: `9199`
-- Functions: `5001`
 - Emulator UI: `4000`
 
 ## デプロイ

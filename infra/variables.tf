@@ -45,6 +45,12 @@ variable "redis_authorized_network" {
   default     = null
 }
 
+variable "redis_version" {
+  description = "Memorystore Redis version"
+  type        = string
+  default     = "REDIS_7_0"
+}
+
 variable "secret_ids" {
   description = "Secret Manager secret ids to provision"
   type        = set(string)

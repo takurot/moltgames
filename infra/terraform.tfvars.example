@@ -5,6 +5,7 @@ storage_location         = "US-CENTRAL1"
 match_event_ttl_field    = "expiresAt"
 replay_nearline_transition_days = 730
 audit_log_retention_days = 1095
+redis_version            = "REDIS_7_0"
 
 secret_ids = [
   "moltgame-connect-token-signing-key",

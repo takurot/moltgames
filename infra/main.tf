@@ -101,7 +101,7 @@ resource "google_redis_instance" "match_state" {
   region         = var.region
   tier           = "BASIC"
   memory_size_gb = 1
-  redis_version  = "REDIS_7_2"
+  redis_version  = var.redis_version
   connect_mode   = "DIRECT_PEERING"
   labels         = local.common_labels
 

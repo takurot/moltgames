@@ -34,7 +34,8 @@ service cloud.firestore {
     }
 
     function canReadMatch(matchData) {
-      return isPublicMatch(matchData) || isParticipant(matchData) || isAllowedSpectator(matchData);
+      return matchData != null &&
+        (isPublicMatch(matchData) || isParticipant(matchData) || isAllowedSpectator(matchData));
     }
 
     // Firestore rules cannot do field-level masking. For non-owners, only docs with
