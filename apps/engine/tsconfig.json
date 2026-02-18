@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@moltgames/domain": ["../../packages/domain/src/index"],
+      "@moltgames/mcp-protocol": ["../../packages/mcp-protocol/src/index"]
+    },
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [{ "path": "../../packages/domain" }, { "path": "../../packages/mcp-protocol" }],
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "test"]
+}

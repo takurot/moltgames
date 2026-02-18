@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/domain" },
+    { "path": "./packages/mcp-protocol" },
+    { "path": "./apps/gateway" },
+    { "path": "./apps/engine" },
+    { "path": "./apps/web" },
+    { "path": "./tools/cli" }
+  ]
+}
