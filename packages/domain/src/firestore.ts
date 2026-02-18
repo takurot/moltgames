@@ -208,6 +208,8 @@ export const isRatingDocument = (value: unknown): value is RatingDocument => {
     isNonEmptyString(value.uid) &&
     isNonEmptyString(value.seasonId) &&
     typeof value.elo === 'number' &&
+    Number.isFinite(value.elo) &&
+    value.elo >= 0 &&
     typeof value.matches === 'number' &&
     Number.isInteger(value.matches) &&
     value.matches >= 0 &&

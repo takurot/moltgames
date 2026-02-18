@@ -9,6 +9,7 @@ import {
   createValidatedFirestoreConverter,
   getAllowedNextMatchStatuses,
   isTerminalMatchStatus,
+  ratingFirestoreConverter,
 } from '../../src/index.js';
 
 describe('domain package', () => {
@@ -153,5 +154,20 @@ describe('domain package', () => {
         }),
       }),
     ).toThrowError('Invalid Firestore payload for document invalid');
+  });
+
+  it('rejects rating payloads with non-finite elo', () => {
+    expect(() =>
+      ratingFirestoreConverter.fromFirestore({
+        id: 'rating-1',
+        data: () => ({
+          uid: 'u-1',
+          seasonId: 'season-2026',
+          elo: Number.POSITIVE_INFINITY,
+          matches: 10,
+          winRate: 0.7,
+        }),
+      }),
+    ).toThrowError('Invalid Firestore payload for document rating-1');
   });
 });
