@@ -1,6 +1,90 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function roleUnchanged() {
+      return request.resource.data.roles == resource.data.roles;
+    }
+
+    function hasNoRolesField() {
+      return !request.resource.data.keys().hasAny(["roles"]);
+    }
+
+    function isPublicMatch(matchData) {
+      return matchData.keys().hasAny(["visibility"]) && matchData.visibility == "public";
+    }
+
+    function isParticipant(matchData) {
+      return isAuthenticated() &&
+        matchData.keys().hasAny(["participantUids"]) &&
+        request.auth.uid in matchData.participantUids;
+    }
+
+    function isAllowedSpectator(matchData) {
+      return isAuthenticated() &&
+        matchData.keys().hasAny(["spectatorUids"]) &&
+        request.auth.uid in matchData.spectatorUids;
+    }
+
+    function canReadMatch(matchData) {
+      return isPublicMatch(matchData) || isParticipant(matchData) || isAllowedSpectator(matchData);
+    }
+
+    // Firestore rules cannot do field-level masking. For non-owners, only docs with
+    // public fields are readable. Private data should be split into another document.
+    function isPublicAgentProfile() {
+      return resource.data.keys().hasOnly([
+        "ownerUid",
+        "modelProvider",
+        "modelName",
+        "createdAt",
+        "updatedAt"
+      ]);
+    }
+
+    match /users/{uid} {
+      allow read: if isUser(uid);
+      allow create: if isUser(uid) && hasNoRolesField();
+      allow update: if isUser(uid) && roleUnchanged();
+      allow delete: if false;
+    }
+
+    match /agents/{agentId} {
+      allow create: if isAuthenticated() && request.resource.data.ownerUid == request.auth.uid;
+      allow read: if isAuthenticated() &&
+        (request.auth.uid == resource.data.ownerUid || isPublicAgentProfile());
+      allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.ownerUid;
+    }
+
+    match /matches/{matchId} {
+      allow read: if canReadMatch(resource.data);
+      allow write: if false;
+
+      match /events/{eventId} {
+        allow read: if canReadMatch(
+          get(/databases/$(database)/documents/matches/$(matchId)).data
+        );
+        allow write: if false;
+      }
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /leaderboards/{seasonId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

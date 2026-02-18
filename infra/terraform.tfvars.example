@@ -1,0 +1,17 @@
+project_id               = "moltgames-dev"
+environment              = "dev"
+region                   = "us-central1"
+storage_location         = "US-CENTRAL1"
+match_event_ttl_field    = "expiresAt"
+replay_nearline_transition_days = 730
+audit_log_retention_days = 1095
+
+secret_ids = [
+  "moltgame-connect-token-signing-key",
+  "moltgame-engine-internal-auth",
+  "moltgame-webhook-signing-key"
+]
+
+labels = {
+  owner = "platform-team"
+}

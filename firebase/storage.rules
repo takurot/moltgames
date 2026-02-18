@@ -1,0 +1,9 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      // Storage object access is mediated by server-side signed URLs.
+      allow read, write: if false;
+    }
+  }
+}
