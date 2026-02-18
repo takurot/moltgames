@@ -193,7 +193,7 @@ export class InMemoryConnectTokenSessionStore implements ConnectTokenSessionStor
 
   #isExpired(session: ConnectTokenSession): boolean {
     const now = toUnixSeconds(this.#clock.now());
-    return now > session.expiresAt;
+    return now >= session.expiresAt;
   }
 
   #deleteSession(session: ConnectTokenSession): void {
@@ -225,6 +225,10 @@ export class ConnectTokenService {
     this.#store = options.store;
     this.#clock = options.clock ?? systemClock;
     this.#ttlSeconds = options.ttlSeconds ?? CONNECT_TOKEN_TTL_SECONDS;
+
+    if (!Number.isInteger(this.#ttlSeconds) || this.#ttlSeconds <= 0) {
+      throw new Error('ConnectTokenService ttlSeconds must be a positive integer');
+    }
   }
 
   async issueToken(input: IssueConnectTokenInput): Promise<IssueConnectTokenResult> {
@@ -316,7 +320,7 @@ export class ConnectTokenService {
     const claims = this.#parseAndVerifySignedToken(connectToken);
     const now = toUnixSeconds(this.#clock.now());
 
-    if (now > claims.expiresAt) {
+    if (now >= claims.expiresAt) {
       throw new ConnectTokenError('TOKEN_EXPIRED', 'Connect token is expired');
     }
 
@@ -345,7 +349,7 @@ export class ConnectTokenService {
       throw new ConnectTokenError('TOKEN_ALREADY_USED', 'Connect token was already used');
     }
 
-    if (now > session.expiresAt) {
+    if (now >= session.expiresAt) {
       throw new ConnectTokenError('TOKEN_EXPIRED', 'Connect token is expired');
     }
 

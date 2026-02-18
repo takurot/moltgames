@@ -89,11 +89,25 @@ describe('ConnectTokenService', () => {
       agentId: 'agent-1',
     });
 
-    clock.advanceSeconds(CONNECT_TOKEN_TTL_SECONDS + 1);
+    clock.advanceSeconds(CONNECT_TOKEN_TTL_SECONDS);
 
     await expect(service.verifyToken(issued.connectToken)).rejects.toMatchObject({
       code: 'TOKEN_EXPIRED',
     });
+  });
+
+  it('rejects non-positive ttl configuration', () => {
+    const clock = new FixedClock('2026-02-18T00:00:00.000Z');
+
+    expect(
+      () =>
+        new ConnectTokenService({
+          secret: 'unit-test-secret',
+          store: new InMemoryConnectTokenSessionStore(clock),
+          clock,
+          ttlSeconds: 0,
+        }),
+    ).toThrowError('ConnectTokenService ttlSeconds must be a positive integer');
   });
 
   it('revokes token by owner and blocks verification', async () => {
