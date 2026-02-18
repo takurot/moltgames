@@ -8,3 +8,8 @@ coverage
 .DS_Store
 
 *.tsbuildinfo
+.terraform
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+terraform.tfvars.json

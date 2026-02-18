@@ -63,5 +63,5 @@ GitHub Actions で以下を必須チェックとする。
 
 ## 備考
 
-- Firebase/GCP リソース本体 (TTL, Memorystore, Secret Manager, Storage lifecycle) は `PR-02` で実装する。
+- Firebase/GCP 基盤リソース (TTL, Memorystore, Secret Manager, Storage lifecycle) は `infra/` と `firebase/` で管理する。
 - main への直接 push は禁止し、`codex/<type>/...` ブランチで作業する。

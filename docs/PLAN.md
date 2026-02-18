@@ -114,6 +114,15 @@ graph TD
 - [ ] Terraform で GCP リソースを IaC 管理 (`infra/`)
 - [ ] Firebase Emulators 設定 (ローカル開発用)
 
+リスクと検証タスク (追加):
+
+- [ ] Firestore rules の制約強化により、想定外フィールド構造のデータアクセスが拒否される可能性を検証する
+  - `@firebase/rules-unit-testing` を使ったルールテストを追加し、owner / non-owner / participant / spectator の read/write 可否を固定化する
+  - PR-04, PR-05, PR-07, PR-20 の統合/E2E で Firestore 実アクセスを通し、拒否ログを確認する
+- [ ] Terraform apply 時に既存プロジェクト設定との差異（VPC, API 有効化状態）で追加調整が必要な可能性を検証する
+  - dev / staging それぞれで `terraform plan` と `terraform apply` を実行し、差分と失敗要因を Runbook 化する
+  - `redis_authorized_network` など環境依存変数の標準値を環境別 tfvars に反映する
+
 ---
 
 ### PR-03: ドメインモデル / 共有型定義
