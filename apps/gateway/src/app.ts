@@ -77,12 +77,21 @@ export const createApp = async (options: AppOptions = {}) => {
   // Health check
   app.get('/healthz', async () => {
     try {
-      if (redis.status === 'ready' || redis.status === 'connect') {
-        await redis.ping();
-      } else {
+      // Use a timeout to prevent hanging on redis.ping() if offline queue is active
+      const pingPromise = (async () => {
+        if (redis.status === 'ready' || redis.status === 'connect') {
+          return redis.ping();
+        }
         await redis.connect().catch(() => {});
-        await redis.ping();
-      }
+        return redis.ping();
+      })();
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Redis ping timeout')), 1000),
+      );
+
+      await Promise.race([pingPromise, timeoutPromise]);
+
       return { status: 'ok' };
     } catch (error) {
       app.log.error({ error }, 'Health check failed');
