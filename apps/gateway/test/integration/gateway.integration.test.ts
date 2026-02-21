@@ -1,12 +1,15 @@
+import { type FastifyInstance } from 'fastify';
+import { type Redis } from 'ioredis';
+import RedisMock from 'ioredis-mock';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
 import { createApp } from '../../src/app.js';
-import type { FastifyInstance } from 'fastify';
 
 describe('Gateway Integration Tests', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    app = await createApp();
+    app = await createApp({ redis: new RedisMock() as unknown as Redis });
     await app.ready();
   });
 
@@ -39,7 +42,7 @@ describe('Gateway Integration Tests', () => {
 
   it('CORS: Allows configured origin', async () => {
     process.env.ALLOWED_ORIGINS = 'https://custom-domain.com';
-    const app2 = await createApp();
+    const app2 = await createApp({ redis: new RedisMock() as unknown as Redis });
     await app2.ready();
 
     const response = await app2.inject({
@@ -51,7 +54,9 @@ describe('Gateway Integration Tests', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.headers['access-control-allow-origin']).toBe('https://custom-domain.com');
+    expect(response.headers['access-control-allow-origin']).toBe(
+      'https://custom-domain.com',
+    );
 
     await app2.close();
     delete process.env.ALLOWED_ORIGINS;
@@ -66,17 +71,13 @@ describe('Gateway Integration Tests', () => {
       },
     });
 
+    // Fastify CORS default behavior for error is usually 500 if callback returns error
     expect(response.statusCode).toBe(500);
   });
 
   it('Rate Limit: Blocks after 5 requests', async () => {
-    const app2 = await createApp();
+    const app2 = await createApp({ redis: new RedisMock() as unknown as Redis });
     await app2.ready();
-
-    // Use a unique IP for this test to avoid interference
-    // Need to configure Fastify to trust proxy if using x-forwarded-for?
-    // Or inject remoteAddress directly?
-    // app.inject({ remoteAddress: '...' }) works for IP.
 
     const remoteAddress = '10.0.0.1';
 

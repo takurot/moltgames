@@ -1,6 +1,9 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify, { FastifyReply, FastifyRequest, RouteHandlerMethod } from 'fastify';
+import { getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { Redis } from 'ioredis';
 
 import {
   ConnectTokenService,
@@ -9,38 +12,28 @@ import {
   type FirebaseIdTokenVerifier,
   type VerifiedFirebaseIdToken,
 } from './index.js';
+import { loggerOptions } from './logger.js';
+import { RedisConnectTokenSessionStore } from './auth/redis-store.js';
+import { FirebaseAuthVerifier } from './auth/firebase-verifier.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
-    if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
-      return {
-        uid: 'test-user',
-        providerId: 'google.com', // or github.com
-        customClaims: {},
-      };
-    }
-    throw new Error('Not implemented');
+    return {
+      uid: 'test-user',
+      providerId: 'google.com',
+      customClaims: {},
+    };
   }
 }
 
-export const createApp = async () => {
-  const logger = {
-    level: process.env.LOG_LEVEL || 'info',
-    ...(process.env.NODE_ENV === 'development'
-      ? {
-          transport: {
-            target: 'pino-pretty',
-            options: {
-              translateTime: 'HH:MM:ss Z',
-              ignore: 'pid,hostname',
-            },
-          },
-        }
-      : {}),
-  };
+export interface AppOptions {
+  redis?: Redis;
+  verifier?: FirebaseIdTokenVerifier;
+}
 
+export const createApp = async (options: AppOptions = {}) => {
   const app = Fastify({
-    logger,
+    logger: loggerOptions,
     trustProxy: true,
   });
 
@@ -71,20 +64,48 @@ export const createApp = async () => {
     },
   });
 
-  // Health check
-  app.get('/healthz', async () => {
-    return { status: 'ok' };
+  const redisUrl = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`;
+  const redis = options.redis || new Redis(redisUrl, {
+    lazyConnect: true,
+    retryStrategy: (times) => Math.min(times * 50, 2000),
   });
 
-  // Connect Token API Setup
-  const store = new InMemoryConnectTokenSessionStore();
+  // Health check
+  app.get('/healthz', async () => {
+    try {
+      if (redis.status === 'ready' || redis.status === 'connect') {
+        await redis.ping();
+      } else {
+        await redis.connect().catch(() => {});
+        await redis.ping();
+      }
+      return { status: 'ok' };
+    } catch (error) {
+      app.log.error({ error }, 'Health check failed');
+      return { status: 'error', details: 'redis connection failed' };
+    }
+  });
+
+  let verifier = options.verifier;
+  if (!verifier) {
+    if (process.env.NODE_ENV === 'test' || process.env.MOCK_AUTH === 'true') {
+      verifier = new MockFirebaseVerifier();
+    } else {
+      if (getApps().length === 0) {
+        initializeApp();
+      }
+      verifier = new FirebaseAuthVerifier(getAuth());
+    }
+  }
+
+  const store = process.env.NODE_ENV === 'test' && !options.redis
+    ? new InMemoryConnectTokenSessionStore()
+    : new RedisConnectTokenSessionStore(redis);
+
   const service = new ConnectTokenService({
     store,
     secret: process.env.CONNECT_TOKEN_SECRET || 'dev-secret',
   });
-
-  // TODO: Use real Firebase implementation in production
-  const verifier = new MockFirebaseVerifier();
 
   const api = createConnectTokenApi({
     connectTokenService: service,
@@ -92,13 +113,12 @@ export const createApp = async () => {
   });
 
   // Adapter for ConnectTokenApi
-  const handleConnectTokenRequest: RouteHandlerMethod = async (
+  const handleConnectTokenRequest = async (
     request: FastifyRequest,
     reply: FastifyReply,
   ) => {
     const protocol = request.protocol;
     const host = request.hostname;
-    // Fastify request.url is relative path
     const url = new URL(`${protocol}://${host}${request.url}`);
 
     const headers = new Headers();
