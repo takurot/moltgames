@@ -46,7 +46,8 @@ service cloud.firestore {
         "modelProvider",
         "modelName",
         "createdAt",
-        "updatedAt"
+        "updatedAt",
+        "policyFlags"
       ]);
     }
 
