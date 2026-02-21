@@ -37,6 +37,26 @@ describe('Gateway Integration Tests', () => {
     expect(response.headers['access-control-allow-origin']).toBe('https://moltgame.com');
   });
 
+  it('CORS: Allows configured origin', async () => {
+    process.env.ALLOWED_ORIGINS = 'https://custom-domain.com';
+    const app2 = await createApp();
+    await app2.ready();
+
+    const response = await app2.inject({
+      method: 'GET',
+      url: '/healthz',
+      headers: {
+        origin: 'https://custom-domain.com',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['access-control-allow-origin']).toBe('https://custom-domain.com');
+
+    await app2.close();
+    delete process.env.ALLOWED_ORIGINS;
+  });
+
   it('CORS: Blocks unknown origin', async () => {
     const response = await app.inject({
       method: 'GET',

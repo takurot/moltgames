@@ -41,12 +41,17 @@ export const createApp = async () => {
 
   const app = Fastify({
     logger,
+    trustProxy: true,
   });
 
   // Middleware
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['https://moltgame.com'];
+
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || /localhost/.test(origin) || origin === 'https://moltgame.com') {
+      if (!origin || /localhost/.test(origin) || allowedOrigins.includes(origin)) {
         cb(null, true);
         return;
       }
