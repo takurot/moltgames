@@ -17,7 +17,7 @@
     "test:integration": "turbo run test:integration",
     "test:e2e": "turbo run test:e2e",
     "test:rules": "firebase emulators:exec --config firebase/firebase.json --only firestore \"vitest run firebase/test\"",
-    "ci": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm test:e2e && pnpm build"
+    "ci": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm test:e2e && pnpm test:rules && pnpm build"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
