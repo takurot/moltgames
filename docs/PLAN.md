@@ -187,20 +187,20 @@ graph TD
 
 タスク:
 
-- [ ] Express / Fastify ベースの HTTP サーバー構築
-- [ ] REST API バージョニング (`/v1/` パスプレフィックス) (§3.3)
-- [ ] CORS ミドルウェア (§3.5)
-- [ ] レート制限ミドルウェア (§9: `5 req / 10 sec / user`)
-- [ ] 構造化 JSON ログ (`matchId`, `uid`, `severity`, `traceId`) (§8.4, §12.2)
-- [ ] ログ方針の実装
+- [x] Express / Fastify ベースの HTTP サーバー構築
+- [x] REST API バージョニング (`/v1/` パスプレフィックス) (§3.3)
+- [x] CORS ミドルウェア (§3.5)
+- [x] レート制限ミドルウェア (§9: `5 req / 10 sec / user`)
+- [x] 構造化 JSON ログ (`matchId`, `uid`, `severity`, `traceId`) (§8.4, §12.2)
+- [x] ログ方針の実装
   - 生の Chain-of-Thought を保存しない (該当フィールド拒否 / マスク)
   - ログ出力スキーマを固定し、許可フィールドのみ保存
-- [ ] Gateway → Engine 間の内部通信クライアント
+- [x] Gateway → Engine 間の内部通信クライアント
   - リトライ (max 2 回, exponential backoff) (§3.6)
   - サーキットブレーカー (エラー率 50% → 10 秒遮断) (§3.6)
-- [ ] ヘルスチェックエンドポイント (`/healthz`)
-- [ ] `Dockerfile` + `cloudbuild.yaml`
-- [ ] 統合テスト: CORS 検証、レート制限、リトライ動作
+- [x] ヘルスチェックエンドポイント (`/healthz`)
+- [x] `Dockerfile` + `cloudbuild.yaml`
+- [x] 統合テスト: CORS 検証、レート制限、リトライ動作
 
 ---
 

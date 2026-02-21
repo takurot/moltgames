@@ -10,7 +10,10 @@
     "@fastify/rate-limit": "^10.3.0",
     "@moltgames/domain": "workspace:*",
     "@moltgames/mcp-protocol": "workspace:*",
-    "fastify": "^5.7.4"
+    "fastify": "^5.7.4",
+    "firebase-admin": "^13.6.1",
+    "ioredis": "^5.9.3",
+    "pino": "^9.14.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -21,6 +24,7 @@
     "test:e2e": "vitest run --passWithNoTests test/e2e"
   },
   "devDependencies": {
+    "ioredis-mock": "^8.13.1",
     "pino-pretty": "^13.1.3"
   }
 }
