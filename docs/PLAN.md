@@ -66,7 +66,7 @@ graph TD
 
 タスク:
 
-- [ ] モノレポ構成を確定 (Turborepo or Nx)
+- [x] モノレポ構成を確定 (Turborepo or Nx)
   ```
   /
   ├── apps/
@@ -83,10 +83,10 @@ graph TD
   ├── firebase/          # Firestore rules, indexes, hosting config
   └── infra/             # Terraform / Cloud Build 設定
   ```
-- [ ] TypeScript / ESLint / Prettier 設定
-- [ ] `.github/workflows/ci.yml` — lint, type-check, test (空テスト)
-- [ ] `README.md` — プロジェクト概要、セットアップ手順
-- [ ] `.env.example` — 必要な環境変数の一覧
+- [x] TypeScript / ESLint / Prettier 設定
+- [x] `.github/workflows/ci.yml` — lint, type-check, test (空テスト)
+- [x] `README.md` — プロジェクト概要、セットアップ手順
+- [x] `.env.example` — 必要な環境変数の一覧
 
 ---
 
@@ -102,24 +102,24 @@ graph TD
 
 タスク:
 
-- [ ] Firebase プロジェクト作成 (dev / staging)
-- [ ] `firebase/firestore.rules` — §8.2 ベースのセキュリティルール初版
-- [ ] `firebase/firestore.indexes.json` — §10.1 の複合インデックス定義
-- [ ] Firestore TTL ポリシー設定 (`matches/{matchId}/events/{eventId}` を 1 年で自動削除, §10.4)
-- [ ] Cloud Storage バケット作成 + ライフサイクルルール (§10.4)
+- [x] Firebase プロジェクト作成 (dev / staging)
+- [x] `firebase/firestore.rules` — §8.2 ベースのセキュリティルール初版
+- [x] `firebase/firestore.indexes.json` — §10.1 の複合インデックス定義
+- [x] Firestore TTL ポリシー設定 (`matches/{matchId}/events/{eventId}` を 1 年で自動削除, §10.4)
+- [x] Cloud Storage バケット作成 + ライフサイクルルール (§10.4)
   - リプレイ: 2 年後 Nearline へ移行
   - 監査ログ: 3 年保持
-- [ ] Memorystore (Redis) インスタンス作成 (`us-central1`, 1GB, §10.2)
-- [ ] Secret Manager に必要なシークレット登録 (§8.3)
-- [ ] Terraform で GCP リソースを IaC 管理 (`infra/`)
-- [ ] Firebase Emulators 設定 (ローカル開発用)
+- [x] Memorystore (Redis) インスタンス作成 (`us-central1`, 1GB, §10.2)
+- [x] Secret Manager に必要なシークレット登録 (§8.3)
+- [x] Terraform で GCP リソースを IaC 管理 (`infra/`)
+- [x] Firebase Emulators 設定 (ローカル開発用)
 
 リスクと検証タスク (追加):
 
-- [ ] Firestore rules の制約強化により、想定外フィールド構造のデータアクセスが拒否される可能性を検証する
+- [x] Firestore rules の制約強化により、想定外フィールド構造のデータアクセスが拒否される可能性を検証する
   - `@firebase/rules-unit-testing` を使ったルールテストを追加し、owner / non-owner / participant / spectator の read/write 可否を固定化する
   - PR-04, PR-05, PR-07, PR-20 の統合/E2E で Firestore 実アクセスを通し、拒否ログを確認する
-- [ ] Terraform apply 時に既存プロジェクト設定との差異（VPC, API 有効化状態）で追加調整が必要な可能性を検証する
+- [x] Terraform apply 時に既存プロジェクト設定との差異（VPC, API 有効化状態）で追加調整が必要な可能性を検証する
   - dev / staging それぞれで `terraform plan` と `terraform apply` を実行し、差分と失敗要因を Runbook 化する
   - `redis_authorized_network` など環境依存変数の標準値を環境別 tfvars に反映する
 
@@ -137,17 +137,17 @@ graph TD
 
 タスク:
 
-- [ ] `packages/domain/` に主要エンティティの TypeScript 型を定義
+- [x] `packages/domain/` に主要エンティティの TypeScript 型を定義
   - `User`, `AgentProfile`, `Match`, `TurnEvent`, `Rating`, `Replay`
-- [ ] マッチ状態遷移の enum と検証関数 (§4.2)
+- [x] マッチ状態遷移の enum と検証関数 (§4.2)
   - 正常系: `CREATED → WAITING_AGENT_CONNECT → READY → IN_PROGRESS → FINISHED → ARCHIVED`
   - 異常系: `ABORTED`, `CANCELLED`
   - 終端状態チェック関数
-- [ ] 共通エラーコード enum (§7.1)
-- [ ] MCP メッセージ型定義 (`packages/mcp-protocol/`)
+- [x] 共通エラーコード enum (§7.1)
+- [x] MCP メッセージ型定義 (`packages/mcp-protocol/`)
   - ツール呼び出しリクエスト / レスポンス / エラー JSON Schema
-- [ ] Firestore コンバータ (型安全な read/write ヘルパー)
-- [ ] ユニットテスト: 状態遷移の網羅テスト
+- [x] Firestore コンバータ (型安全な read/write ヘルパー)
+- [x] ユニットテスト: 状態遷移の網羅テスト
 
 ---
 
@@ -163,15 +163,15 @@ graph TD
 
 タスク:
 
-- [ ] Firebase Authentication 初期設定 (Google / GitHub プロバイダ)
-- [ ] Connect Token 発行 API (`POST /v1/tokens`)
+- [x] Firebase Authentication 初期設定 (Google / GitHub プロバイダ)
+- [x] Connect Token 発行 API (`POST /v1/tokens`)
   - 署名付き、単回利用、TTL 5 分 (§5.1)
   - Redis に `session:{connectToken}` を格納
-- [ ] Connect Token 検証ミドルウェア
+- [x] Connect Token 検証ミドルウェア
   - 署名検証、有効期限チェック、使用済みフラグ確認
-- [ ] Token 失効 API (`DELETE /v1/tokens/:tokenId`)
-- [ ] カスタムクレームベース RBAC ヘルパー (§8.1)
-- [ ] ユニットテスト: 発行、検証、失効、有効期限切れ
+- [x] Token 失効 API (`DELETE /v1/tokens/:tokenId`)
+- [x] カスタムクレームベース RBAC ヘルパー (§8.1)
+- [x] ユニットテスト: 発行、検証、失効、有効期限切れ
 
 ---
 
