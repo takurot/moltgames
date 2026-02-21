@@ -54,9 +54,7 @@ describe('Gateway Integration Tests', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.headers['access-control-allow-origin']).toBe(
-      'https://custom-domain.com',
-    );
+    expect(response.headers['access-control-allow-origin']).toBe('https://custom-domain.com');
 
     await app2.close();
     delete process.env.ALLOWED_ORIGINS;

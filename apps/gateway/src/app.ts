@@ -64,11 +64,15 @@ export const createApp = async (options: AppOptions = {}) => {
     },
   });
 
-  const redisUrl = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`;
-  const redis = options.redis || new Redis(redisUrl, {
-    lazyConnect: true,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-  });
+  const redisUrl =
+    process.env.REDIS_URL ||
+    `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`;
+  const redis =
+    options.redis ||
+    new Redis(redisUrl, {
+      lazyConnect: true,
+      retryStrategy: (times) => Math.min(times * 50, 2000),
+    });
 
   // Health check
   app.get('/healthz', async () => {
@@ -98,9 +102,10 @@ export const createApp = async (options: AppOptions = {}) => {
     }
   }
 
-  const store = process.env.NODE_ENV === 'test' && !options.redis
-    ? new InMemoryConnectTokenSessionStore()
-    : new RedisConnectTokenSessionStore(redis);
+  const store =
+    process.env.NODE_ENV === 'test' && !options.redis
+      ? new InMemoryConnectTokenSessionStore()
+      : new RedisConnectTokenSessionStore(redis);
 
   const service = new ConnectTokenService({
     store,
@@ -113,10 +118,7 @@ export const createApp = async (options: AppOptions = {}) => {
   });
 
   // Adapter for ConnectTokenApi
-  const handleConnectTokenRequest = async (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => {
+  const handleConnectTokenRequest = async (request: FastifyRequest, reply: FastifyReply) => {
     const protocol = request.protocol;
     const host = request.hostname;
     const url = new URL(`${protocol}://${host}${request.url}`);

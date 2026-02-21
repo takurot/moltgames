@@ -11,8 +11,8 @@ describe('EngineClient', () => {
     vi.stubGlobal('fetch', mockFetch);
     // Use smaller retry delay for tests
     client = new EngineClient({
-        engineUrl: 'http://engine',
-        retryAttempts: 2,
+      engineUrl: 'http://engine',
+      retryAttempts: 2,
     });
   });
 

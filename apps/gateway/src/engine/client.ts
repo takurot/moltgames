@@ -11,10 +11,10 @@ export class EngineClient {
   readonly #circuitBreakerThreshold: number;
   readonly #circuitBreakerResetTimeout: number;
 
-  #failureCount = 0;
-  #successCount = 0;
+  #history: boolean[] = []; // true = success, false = failure
   #circuitOpen = false;
   #circuitOpenTime = 0;
+  #windowSize = 20;
 
   constructor(options: EngineClientOptions) {
     this.#engineUrl = options.engineUrl.replace(/\/$/, '');
@@ -88,32 +88,34 @@ export class EngineClient {
     const now = Date.now();
     if (now - this.#circuitOpenTime > this.#circuitBreakerResetTimeout) {
       this.#circuitOpen = false;
-      this.#resetStats();
+      this.#history = [];
       return false;
     }
     return true;
   }
 
   #recordSuccess() {
-    this.#successCount++;
-    this.#checkCircuit();
+    this.#addHistory(true);
   }
 
   #recordFailure() {
-    this.#failureCount++;
+    this.#addHistory(false);
     this.#checkCircuit();
   }
 
-  #resetStats() {
-    this.#failureCount = 0;
-    this.#successCount = 0;
+  #addHistory(success: boolean) {
+    this.#history.push(success);
+    if (this.#history.length > this.#windowSize) {
+      this.#history.shift();
+    }
   }
 
   #checkCircuit() {
-    const total = this.#failureCount + this.#successCount;
-    if (total < 10) return;
+    if (this.#history.length < 10) return;
 
-    const rate = this.#failureCount / total;
+    const failureCount = this.#history.filter((s) => !s).length;
+    const rate = failureCount / this.#history.length;
+
     if (rate > this.#circuitBreakerThreshold) {
       this.#circuitOpen = true;
       this.#circuitOpenTime = Date.now();

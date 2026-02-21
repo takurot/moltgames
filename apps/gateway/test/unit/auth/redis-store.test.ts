@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import RedisMock from 'ioredis-mock';
 import { RedisConnectTokenSessionStore } from '../../../src/auth/redis-store.js';
-import { ConnectTokenSession, systemClock, CONNECT_TOKEN_SESSION_KEY_PREFIX, CONNECT_TOKEN_LOOKUP_KEY_PREFIX } from '../../../src/auth/connect-token.js';
+import {
+  ConnectTokenSession,
+  systemClock,
+  CONNECT_TOKEN_SESSION_KEY_PREFIX,
+  CONNECT_TOKEN_LOOKUP_KEY_PREFIX,
+} from '../../../src/auth/connect-token.js';
 
 describe('RedisConnectTokenSessionStore', () => {
   let redis: any;
