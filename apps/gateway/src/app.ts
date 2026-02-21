@@ -1,6 +1,6 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import Fastify, { FastifyReply, FastifyRequest, RouteHandlerMethod } from 'fastify';
+import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { Redis } from 'ioredis';

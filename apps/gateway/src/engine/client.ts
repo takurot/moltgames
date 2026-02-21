@@ -34,7 +34,7 @@ export class EngineClient {
         const result = await this.#executeRequest<T>(path, body);
         this.#recordSuccess();
         return result;
-      } catch (error: any) {
+      } catch (error: unknown) {
         attempts++;
         if (attempts > this.#retryAttempts || !this.#isRetryable(error)) {
           this.#recordFailure();
@@ -70,9 +70,11 @@ export class EngineClient {
     }
   }
 
-  #isRetryable(error: any): boolean {
-    if (error.message.includes('Engine error: 5')) return true;
-    if (error.name === 'TypeError') return true; // network error
+  #isRetryable(error: unknown): boolean {
+    if (error instanceof Error) {
+      if (error.message.includes('Engine error: 5')) return true;
+      if (error.name === 'TypeError') return true; // network error
+    }
     return false;
   }
 
