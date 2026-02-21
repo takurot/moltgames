@@ -1,0 +1,13 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/kaniko-project/executor:latest'
+    args:
+      - --destination=gcr.io/$PROJECT_ID/moltgame-engine:$COMMIT_SHA
+      - --destination=gcr.io/$PROJECT_ID/moltgame-engine:latest
+      - --cache=true
+      - --cache-ttl=24h
+      - --dockerfile=apps/engine/Dockerfile
+      - --context=dir://.
+timeout: '1200s'
+options:
+  machineType: 'N1_HIGHCPU_8'
