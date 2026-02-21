@@ -6,8 +6,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@moltgames/domain": "workspace:*",
-    "@moltgames/mcp-protocol": "workspace:*"
+    "@moltgames/mcp-protocol": "workspace:*",
+    "fastify": "^5.7.4"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -16,5 +19,8 @@
     "test:unit": "vitest run --passWithNoTests test/unit",
     "test:integration": "vitest run --passWithNoTests test/integration",
     "test:e2e": "vitest run --passWithNoTests test/e2e"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.1.3"
   }
 }
