@@ -33,4 +33,7 @@ program
     }
   });
 
-program.parse();
+if (process.env.NODE_ENV !== 'test') {
+  program.parse();
+}
+
