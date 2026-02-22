@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { JsonValue } from '@moltgames/domain';
 
 export class RedisManager {
   private client: Redis;
@@ -41,6 +42,27 @@ export class RedisManager {
 
   async releaseTurnLock(matchId: string): Promise<void> {
     await this.client.del(`match:${matchId}:turn-lock`);
+  }
+
+  async checkRequestIdProcessed(matchId: string, requestId: string): Promise<boolean> {
+    const exists = await this.client.exists(`match:${matchId}:request:${requestId}`);
+    return exists === 1;
+  }
+
+  async markRequestIdProcessed(
+    matchId: string,
+    requestId: string,
+    response: JsonValue,
+    ttlSeconds: number = 86400,
+  ): Promise<void> {
+    const key = `match:${matchId}:request:${requestId}`;
+    await this.client.setex(key, ttlSeconds, JSON.stringify(response));
+  }
+
+  async getProcessedResponse(matchId: string, requestId: string): Promise<JsonValue | null> {
+    const data = await this.client.get(`match:${matchId}:request:${requestId}`);
+    if (!data) return null;
+    return JSON.parse(data) as JsonValue;
   }
 
   async close(): Promise<void> {

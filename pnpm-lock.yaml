@@ -44,12 +44,18 @@ importers:
 
   apps/engine:
     dependencies:
+      '@fastify/cors':
+        specifier: ^11.2.0
+        version: 11.2.0
       '@moltgames/domain':
         specifier: workspace:*
         version: link:../../packages/domain
       '@moltgames/mcp-protocol':
         specifier: workspace:*
         version: link:../../packages/mcp-protocol
+      fastify:
+        specifier: ^5.7.4
+        version: 5.7.4
       ioredis:
         specifier: ^5.9.3
         version: 5.9.3

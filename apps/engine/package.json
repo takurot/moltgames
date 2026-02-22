@@ -6,8 +6,10 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
     "@moltgames/domain": "workspace:*",
     "@moltgames/mcp-protocol": "workspace:*",
+    "fastify": "^5.7.4",
     "ioredis": "^5.9.3",
     "pino": "^9.14.0"
   },

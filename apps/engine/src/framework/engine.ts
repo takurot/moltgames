@@ -1,4 +1,4 @@
-import type { GamePlugin, Action } from './types.js';
+import type { GamePlugin, Action, TerminationResult } from './types.js';
 import type { RedisManager } from '../state/redis-manager.js';
 import type { JsonValue, CommonErrorCode } from '@moltgames/domain';
 
@@ -26,6 +26,7 @@ export class Engine {
     await this.redis.saveMatchState(matchId, state);
     await this.redis.saveMatchMeta(matchId, {
       gameId,
+      ruleVersion: plugin.ruleVersion,
       turn: turn.toString(),
       retryCount: '0',
     });
@@ -35,9 +36,18 @@ export class Engine {
     matchId: string,
     action: Action,
   ): Promise<
-    | { status: 'ok'; result: JsonValue }
+    | { status: 'ok'; result: JsonValue; termination?: TerminationResult }
     | { status: 'error'; error: { code: CommonErrorCode; message: string; retryable: boolean } }
   > {
+    // 0. Check Idempotency
+    const isProcessed = await this.redis.checkRequestIdProcessed(matchId, action.request_id);
+    if (isProcessed) {
+      const cached = await this.redis.getProcessedResponse(matchId, action.request_id);
+      if (cached) {
+        return cached as any;
+      }
+    }
+
     const locked = await this.redis.acquireTurnLock(matchId, LOCK_TTL_SECONDS);
     if (!locked) {
       return {
@@ -117,22 +127,27 @@ export class Engine {
           });
         }
 
-        return {
+        const response = {
           status: 'error',
           error: {
             code: 'VALIDATION_ERROR',
             message: validation.error || 'Invalid action',
             retryable: isRetryable,
           },
-        };
+        } as const;
+
+        // Mark processed even for validation errors to ensure idempotency
+        await this.redis.markRequestIdProcessed(matchId, action.request_id, response);
+
+        return response;
       }
 
       // 4. Apply Action
       const { state: newState, result } = plugin.applyAction(state, action);
       const newTurn = plugin.getTurn(newState);
 
-      // 5. Check Termination (TODO: Handle termination result)
-      // const termination = plugin.checkTermination(newState);
+      // 5. Check Termination
+      const termination = plugin.checkTermination(newState);
 
       // 6. Save State
       await this.redis.saveMatchState(matchId, newState);
@@ -145,10 +160,15 @@ export class Engine {
       };
       await this.redis.saveMatchMeta(matchId, newMeta);
 
-      return {
+      const response = {
         status: 'ok',
         result,
-      };
+        termination: termination || undefined,
+      } as const;
+
+      await this.redis.markRequestIdProcessed(matchId, action.request_id, response);
+
+      return response;
     } finally {
       await this.redis.releaseTurnLock(matchId);
     }

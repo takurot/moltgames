@@ -44,6 +44,16 @@ vi.mock('../../../src/state/redis-manager.js', () => {
       async releaseTurnLock(matchId: string) {
         await this.client.del(`match:${matchId}:turn-lock`);
       }
+      async checkRequestIdProcessed(matchId: string, requestId: string) {
+        return this.client.exists(`req:${matchId}:${requestId}`);
+      }
+      async markRequestIdProcessed(matchId: string, requestId: string, response: any) {
+        await this.client.set(`req:${matchId}:${requestId}`, JSON.stringify(response));
+      }
+      async getProcessedResponse(matchId: string, requestId: string) {
+        const data = await this.client.get(`req:${matchId}:${requestId}`);
+        return data ? JSON.parse(data) : null;
+      }
     },
   };
 });
@@ -111,7 +121,7 @@ describe('Engine', () => {
     const matchId = 'match-2';
     await engine.startMatch(matchId, 'test-game', 123);
 
-    const action: Action = { tool: 'move', args: {} };
+    const action: Action = { tool: 'move', request_id: 'req1', args: {} };
     const result = await engine.processAction(matchId, action);
 
     expect(result.status).toBe('ok');
@@ -130,7 +140,7 @@ describe('Engine', () => {
     const matchId = 'match-3';
     await engine.startMatch(matchId, 'test-game', 123);
 
-    const action: Action = { tool: 'retryable_error', args: {} };
+    const action: Action = { tool: 'retryable_error', request_id: 'req2', args: {} };
     const result = await engine.processAction(matchId, action);
 
     expect(result.status).toBe('error');
@@ -147,25 +157,23 @@ describe('Engine', () => {
     const matchId = 'match-4';
     await engine.startMatch(matchId, 'test-game', 123);
 
-    const action: Action = { tool: 'retryable_error', args: {} };
-
     // 1st retry
-    await engine.processAction(matchId, action);
+    await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-1', args: {} });
     let meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
 
     // 2nd retry
-    await engine.processAction(matchId, action);
+    await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-2', args: {} });
     meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '2' }));
 
     // 3rd retry
-    await engine.processAction(matchId, action);
+    await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-3', args: {} });
     meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '3' }));
 
     // 4th attempt (should fail non-retryable)
-    const result = await engine.processAction(matchId, action);
+    const result = await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-4', args: {} });
     expect(result.status).toBe('error');
     if (result.status === 'error') {
       expect(result.error.code).toBe('VALIDATION_ERROR');
@@ -177,7 +185,7 @@ describe('Engine', () => {
     const matchId = 'match-5';
     await engine.startMatch(matchId, 'test-game', 123);
 
-    const action: Action = { tool: 'invalid', args: {} };
+    const action: Action = { tool: 'invalid', request_id: 'req4', args: {} };
     const result = await engine.processAction(matchId, action);
 
     expect(result.status).toBe('error');
@@ -196,7 +204,7 @@ describe('Engine', () => {
     // Manually acquire lock to simulate concurrency
     await redisManager.acquireTurnLock(matchId, 10);
 
-    const action: Action = { tool: 'move', args: {} };
+    const action: Action = { tool: 'move', request_id: 'req5', args: {} };
     const result = await engine.processAction(matchId, action);
 
     expect(result.status).toBe('error');

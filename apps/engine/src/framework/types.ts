@@ -3,6 +3,7 @@ import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
 
 export interface Action {
   tool: string;
+  request_id: string;
   args: JsonObject;
 }
 
