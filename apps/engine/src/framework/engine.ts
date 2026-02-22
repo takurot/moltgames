@@ -125,10 +125,7 @@ export class Engine {
     });
   }
 
-  async processAction(
-    matchId: string,
-    action: Action,
-  ): Promise<ProcessActionResponse> {
+  async processAction(matchId: string, action: Action): Promise<ProcessActionResponse> {
     // 0. Check Idempotency
     const isProcessed = await this.redis.checkRequestIdProcessed(matchId, action.request_id);
     if (isProcessed) {
@@ -271,7 +268,9 @@ export class Engine {
         retryCount: '0', // Reset on successful action
         turnTimeoutSec: turnTimeoutSeconds.toString(),
         turnStartedAtMs:
-          newTurn === currentTurn ? (meta.turnStartedAtMs ?? Date.now().toString()) : Date.now().toString(),
+          newTurn === currentTurn
+            ? (meta.turnStartedAtMs ?? Date.now().toString())
+            : Date.now().toString(),
       };
       await this.redis.saveMatchMeta(matchId, newMeta);
 
@@ -279,7 +278,11 @@ export class Engine {
         ? { status: 'ok', result, termination }
         : { status: 'ok', result };
 
-      await this.redis.markRequestIdProcessed(matchId, action.request_id, this.toCacheResponse(response));
+      await this.redis.markRequestIdProcessed(
+        matchId,
+        action.request_id,
+        this.toCacheResponse(response),
+      );
 
       return response;
     } finally {
