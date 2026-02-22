@@ -132,7 +132,10 @@ export class Engine {
     });
   }
 
-  async getAvailableTools(matchId: string): Promise<ReturnType<GamePlugin['getAvailableTools']>> {
+  async getAvailableTools(
+    matchId: string,
+    agentId: string,
+  ): Promise<ReturnType<GamePlugin['getAvailableTools']>> {
     const [meta, state] = await Promise.all([
       this.redis.getMatchMeta(matchId),
       this.redis.getMatchState(matchId),
@@ -157,7 +160,7 @@ export class Engine {
     }
 
     const phase = meta.phase ?? 'default';
-    return plugin.getAvailableTools(state, phase);
+    return plugin.getAvailableTools(state, agentId, phase);
   }
 
   async processAction(matchId: string, action: Action): Promise<ProcessActionResponse> {

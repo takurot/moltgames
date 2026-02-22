@@ -100,12 +100,25 @@ describe('PromptInjectionArena', () => {
     expect(redacted.history[1].content).toBe('No, ***REDACTED*** is not it.');
   });
 
-  it('provides available tools', () => {
+  it('provides available tools based on role and turn', () => {
     const state = plugin.initialize(12345);
-    const tools = plugin.getAvailableTools(state, 'default');
-    expect(tools).toHaveLength(3);
-    expect(tools.map((t) => t.name)).toContain('send_message');
-    expect(tools.map((t) => t.name)).toContain('respond');
-    expect(tools.map((t) => t.name)).toContain('check_secret');
+
+    // Attacker turn
+    const attackerTools = plugin.getAvailableTools(state, 'agent-1', 'default');
+    expect(attackerTools).toHaveLength(2);
+    expect(attackerTools.map((t) => t.name)).toContain('send_message');
+    expect(attackerTools.map((t) => t.name)).toContain('check_secret');
+
+    const defenderTools = plugin.getAvailableTools(state, 'agent-2', 'default');
+    expect(defenderTools).toHaveLength(0);
+
+    // Defender turn
+    state.turn = 2;
+    const attackerTools2 = plugin.getAvailableTools(state, 'agent-1', 'default');
+    expect(attackerTools2).toHaveLength(0);
+
+    const defenderTools2 = plugin.getAvailableTools(state, 'agent-2', 'default');
+    expect(defenderTools2).toHaveLength(1);
+    expect(defenderTools2[0].name).toBe('respond');
   });
 });

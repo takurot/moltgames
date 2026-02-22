@@ -31,7 +31,7 @@ export interface GamePlugin<S = unknown> {
   initialize(seed: number): S;
   getTurn(state: S): number;
   consumeTurn(state: S): S;
-  getAvailableTools(state: S, phase: string): MCPToolDefinition[];
+  getAvailableTools(state: S, agentId: string, phase: string): MCPToolDefinition[];
   validateAction(state: S, action: Action): ValidationResult;
   applyAction(state: S, action: Action): ApplyActionResult<S>;
   checkTermination(state: S): TerminationResult | null;

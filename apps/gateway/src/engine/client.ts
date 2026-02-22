@@ -24,6 +24,14 @@ export class EngineClient {
   }
 
   async post<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>('POST', path, body);
+  }
+
+  async get<T>(path: string): Promise<T> {
+    return this.request<T>('GET', path);
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     if (this.#isCircuitOpen()) {
       throw new Error('Service Unavailable (Circuit Open)');
     }
@@ -31,7 +39,7 @@ export class EngineClient {
     let attempts = 0;
     while (attempts <= this.#retryAttempts) {
       try {
-        const result = await this.#executeRequest<T>(path, body);
+        const result = await this.#executeRequest<T>(method, path, body);
         this.#recordSuccess();
         return result;
       } catch (error: unknown) {
@@ -46,20 +54,17 @@ export class EngineClient {
     throw new Error('Unreachable code');
   }
 
-  async #executeRequest<T>(path: string, body: unknown): Promise<T> {
+  async #executeRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.#engineUrl}${path}`;
     const response = await fetch(url, {
-      method: 'POST',
+      method,
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: body ? JSON.stringify(body) : undefined,
     });
 
     if (!response.ok) {
-      if (response.status >= 500) {
-        throw new Error(`Engine error: ${response.status}`);
-      }
       throw new Error(`Engine error: ${response.status}`);
     }
 

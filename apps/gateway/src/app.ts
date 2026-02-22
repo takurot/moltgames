@@ -83,10 +83,9 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
   const client = new EngineClient({ engineUrl: DEFAULT_ENGINE_URL });
 
   return {
-    getTools: async (matchId, _agentId) => {
-      const response = await client.post<{ status: 'ok'; tools: unknown[] }>(
-        `/matches/${encodeURIComponent(matchId)}/tools`,
-        {},
+    getTools: async (matchId, agentId) => {
+      const response = await client.get<{ status: 'ok'; tools: unknown[] }>(
+        `/matches/${encodeURIComponent(matchId)}/tools?agentId=${encodeURIComponent(agentId)}`,
       );
 
       if (
@@ -408,7 +407,29 @@ export const createApp = async (options: AppOptions = {}) => {
           : mapRuntimeErrorToToolResponse(request.request_id, new Error('Invalid engine response'));
 
         sendJson(socket, normalizedResponse, app.log);
-        await refreshToolsAndNotify(session);
+
+        // Notify all agents in this match about turn change or termination
+        const matchSessions = Array.from(sessionsById.values()).filter(
+          (s) => s.matchId === session.matchId,
+        );
+
+        if ('termination' in response && response.termination && response.termination.ended) {
+          const termination = response.termination;
+          for (const s of matchSessions) {
+            sendJson(
+              s.socket,
+              {
+                type: 'match/ended',
+                winner: termination.winner,
+                reason: termination.reason,
+              },
+              app.log,
+            );
+          }
+        } else {
+          // Refresh tools for everyone in the match
+          await Promise.all(matchSessions.map((s) => refreshToolsAndNotify(s)));
+        }
       } catch (error) {
         if (error instanceof Error && error.message === 'Invalid MCP tool call request') {
           const response: ToolCallResponse = {
