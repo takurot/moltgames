@@ -1,4 +1,4 @@
-import WebSocket, { type RawData } from 'ws';
+import WebSocket from 'ws';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
 
 export interface ClientOptions {
