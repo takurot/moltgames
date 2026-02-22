@@ -78,6 +78,9 @@ class MockGamePlugin implements GamePlugin<any> {
   getTurn(state: any) {
     return state.turn;
   }
+  consumeTurn(state: any) {
+    return { ...state, turn: state.turn + 1 };
+  }
   getAvailableTools() {
     return [];
   }
@@ -199,6 +202,18 @@ describe('Engine', () => {
     expect(Number(meta?.turnStartedAtMs)).toBeGreaterThanOrEqual(
       Number(metaBeforeSecondFailure?.turnStartedAtMs ?? '0'),
     );
+
+    const thirdResult = await engine.processAction(matchId, {
+      tool: 'move',
+      request_id: 'req3-3',
+      args: {},
+    });
+    expect(thirdResult).toMatchObject({ status: 'ok', request_id: 'req3-3' });
+
+    const stateAfterConsumeThenMove = await redisManager.getMatchState<{ turn: number }>(matchId);
+    expect(stateAfterConsumeThenMove).toEqual(expect.objectContaining({ turn: 3 }));
+    meta = await redisManager.getMatchMeta(matchId);
+    expect(meta).toEqual(expect.objectContaining({ turn: '3', retryCount: '0' }));
   });
 
   it('should fail immediately on non-retryable error', async () => {

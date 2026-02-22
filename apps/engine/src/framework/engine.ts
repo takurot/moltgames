@@ -247,14 +247,18 @@ export class Engine {
             retryCount: (currentRetryCount + 1).toString(),
           });
         } else if (validation.retryable !== false) {
-          // Second retryable failure consumes the turn.
-          const currentTurn = parseNonNegativeInt(meta.turn) ?? 0;
+          // Second retryable failure consumes the turn in both state and meta.
+          const consumedState = plugin.consumeTurn(state);
+          const consumedTurn = plugin.getTurn(consumedState);
+          const turnStartedAtMs = Date.now().toString();
+
+          await this.redis.saveMatchState(matchId, consumedState);
           await this.redis.saveMatchMeta(matchId, {
             ...meta,
-            turn: (currentTurn + 1).toString(),
+            turn: consumedTurn.toString(),
             retryCount: '0',
             turnTimeoutSec: turnTimeoutSeconds.toString(),
-            turnStartedAtMs: Date.now().toString(),
+            turnStartedAtMs,
           });
         }
 

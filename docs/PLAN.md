@@ -224,6 +224,7 @@ graph TD
     initialize(seed: number): GameState;
     getAvailableTools(state: GameState, phase: string): ToolDefinition[];
     validateAction(state: GameState, action: Action): ValidationResult;
+    consumeTurn(state: GameState): GameState;
     applyAction(state: GameState, action: Action): GameState;
     checkTermination(state: GameState): TerminationResult | null;
   }
