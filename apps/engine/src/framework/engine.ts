@@ -4,6 +4,7 @@ import type { RedisManager } from '../state/redis-manager.js';
 import {
   isCommonErrorCode,
   isJsonValue,
+  isNonEmptyString,
   isRecord,
   type CommonErrorCode,
   type JsonValue,
@@ -14,10 +15,11 @@ const DEFAULT_TURN_TIMEOUT_SECONDS = 30;
 const LOCK_TTL_EXTRA_SECONDS = 5;
 
 type ProcessActionOkResponse =
-  | { status: 'ok'; result: JsonValue }
-  | { status: 'ok'; result: JsonValue; termination: TerminationResult };
+  | { request_id: string; status: 'ok'; result: JsonValue }
+  | { request_id: string; status: 'ok'; result: JsonValue; termination: TerminationResult };
 
 type ProcessActionErrorResponse = {
+  request_id: string;
   status: 'error';
   error: { code: CommonErrorCode; message: string; retryable: boolean };
 };
@@ -67,7 +69,11 @@ const isTerminationResult = (value: unknown): value is TerminationResult => {
 };
 
 const isProcessActionResponse = (value: unknown): value is ProcessActionResponse => {
-  if (!isRecord(value) || (value.status !== 'ok' && value.status !== 'error')) {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.request_id) ||
+    (value.status !== 'ok' && value.status !== 'error')
+  ) {
     return false;
   }
 
@@ -117,6 +123,7 @@ export class Engine {
     await this.redis.saveMatchState(matchId, state);
     await this.redis.saveMatchMeta(matchId, {
       gameId,
+      seed: seed.toString(),
       ruleVersion: plugin.ruleVersion,
       turn: turn.toString(),
       retryCount: '0',
@@ -141,6 +148,7 @@ export class Engine {
     const locked = await this.redis.acquireTurnLock(matchId, lockTtlSeconds, lockOwnerToken);
     if (!locked) {
       return {
+        request_id: action.request_id,
         status: 'error',
         error: {
           code: 'SERVICE_UNAVAILABLE',
@@ -159,6 +167,7 @@ export class Engine {
 
       if (!meta) {
         return {
+          request_id: action.request_id,
           status: 'error',
           error: {
             code: 'INVALID_REQUEST',
@@ -170,6 +179,7 @@ export class Engine {
 
       if (!state) {
         return {
+          request_id: action.request_id,
           status: 'error',
           error: {
             code: 'INTERNAL_ERROR' as CommonErrorCode,
@@ -182,6 +192,7 @@ export class Engine {
       const gameId = meta.gameId;
       if (!gameId) {
         return {
+          request_id: action.request_id,
           status: 'error',
           error: {
             code: 'INTERNAL_ERROR' as CommonErrorCode,
@@ -194,6 +205,7 @@ export class Engine {
       const plugin = this.plugins.get(gameId);
       if (!plugin) {
         return {
+          request_id: action.request_id,
           status: 'error',
           error: {
             code: 'INTERNAL_ERROR' as CommonErrorCode,
@@ -206,6 +218,7 @@ export class Engine {
       const turnTimeoutSeconds = this.getTurnTimeoutSeconds(meta, plugin);
       if (this.isTurnExpired(meta, turnTimeoutSeconds)) {
         const response: ProcessActionErrorResponse = {
+          request_id: action.request_id,
           status: 'error',
           error: {
             code: 'TURN_EXPIRED',
@@ -233,9 +246,20 @@ export class Engine {
             ...meta,
             retryCount: (currentRetryCount + 1).toString(),
           });
+        } else if (validation.retryable !== false) {
+          // Second retryable failure consumes the turn.
+          const currentTurn = parseNonNegativeInt(meta.turn) ?? 0;
+          await this.redis.saveMatchMeta(matchId, {
+            ...meta,
+            turn: (currentTurn + 1).toString(),
+            retryCount: '0',
+            turnTimeoutSec: turnTimeoutSeconds.toString(),
+            turnStartedAtMs: Date.now().toString(),
+          });
         }
 
         const response = {
+          request_id: action.request_id,
           status: 'error',
           error: {
             code: 'VALIDATION_ERROR',
@@ -275,8 +299,8 @@ export class Engine {
       await this.redis.saveMatchMeta(matchId, newMeta);
 
       const response: ProcessActionOkResponse = termination
-        ? { status: 'ok', result, termination }
-        : { status: 'ok', result };
+        ? { request_id: action.request_id, status: 'ok', result, termination }
+        : { request_id: action.request_id, status: 'ok', result };
 
       await this.redis.markRequestIdProcessed(
         matchId,
@@ -320,6 +344,7 @@ export class Engine {
   private toCacheResponse(response: ProcessActionResponse): JsonValue {
     if (response.status === 'error') {
       return {
+        request_id: response.request_id,
         status: 'error',
         error: {
           code: response.error.code,
@@ -331,6 +356,7 @@ export class Engine {
 
     if ('termination' in response) {
       return {
+        request_id: response.request_id,
         status: 'ok',
         result: response.result,
         termination: this.toCacheTermination(response.termination),
@@ -338,6 +364,7 @@ export class Engine {
     }
 
     return {
+      request_id: response.request_id,
       status: 'ok',
       result: response.result,
     };

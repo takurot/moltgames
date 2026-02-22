@@ -194,6 +194,7 @@ CREATED -> WAITING_AGENT_CONNECT -> READY -> IN_PROGRESS -> FINISHED -> ARCHIVED
 | `NOT_YOUR_TURN` | ターン外アクション | 自分のターンまで待機 |
 | `MATCH_ENDED` | 試合終了後のアクション | 結果を確認 |
 | `SERVICE_UNAVAILABLE` | サーバー一時障害 | backoff 後に再接続 |
+| `INTERNAL_ERROR` | サーバー内部エラー | リクエストを中断し運用者へ通知 |
 
 ### 7.2 例
 
