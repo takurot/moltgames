@@ -78,8 +78,12 @@ describe('Phase 0 E2E Verification', () => {
 
     // 5. Play the game
     // Wait for session ready and tools list
-    expect(await poll(async () => agent1Messages.some((m) => m.type === 'session/ready'))).toBe(true);
-    expect(await poll(async () => agent2Messages.some((m) => m.type === 'session/ready'))).toBe(true);
+    expect(await poll(async () => agent1Messages.some((m) => m.type === 'session/ready'))).toBe(
+      true,
+    );
+    expect(await poll(async () => agent2Messages.some((m) => m.type === 'session/ready'))).toBe(
+      true,
+    );
 
     // Agent 1 (Attacker) sends message
     agent1.send(
@@ -94,7 +98,9 @@ describe('Phase 0 E2E Verification', () => {
     // Actually, in our implementation, turn changes.
 
     // Agent 2 (Defender) responds
-    expect(await poll(async () => agent2Messages.some((m) => m.type === 'tools/list_changed'))).toBe(true);
+    expect(
+      await poll(async () => agent2Messages.some((m) => m.type === 'tools/list_changed')),
+    ).toBe(true);
     agent2.send(
       JSON.stringify({
         tool: 'respond',
@@ -109,7 +115,9 @@ describe('Phase 0 E2E Verification', () => {
     // sin(12345) is approx -0.99, index = 6 ('grape')
     const secret = 'SECRET-grape-12345';
 
-    expect(await poll(async () => agent1Messages.some((m) => m.type === 'tools/list_changed'))).toBe(true);
+    expect(
+      await poll(async () => agent1Messages.some((m) => m.type === 'tools/list_changed')),
+    ).toBe(true);
     agent1.send(
       JSON.stringify({
         tool: 'check_secret',
