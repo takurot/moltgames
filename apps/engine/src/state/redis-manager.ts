@@ -13,7 +13,7 @@ export class RedisManager {
     return JSON.parse(data) as S;
   }
 
-  async saveMatchState<S>(matchId: string, state: S, ttlSeconds: number = 600): Promise<void> {
+  async saveMatchState<S>(matchId: string, state: S, ttlSeconds: number = 86400): Promise<void> {
     await this.client.setex(`match:${matchId}:state`, ttlSeconds, JSON.stringify(state));
   }
 
@@ -26,7 +26,7 @@ export class RedisManager {
   async saveMatchMeta(
     matchId: string,
     meta: Record<string, string | number>,
-    ttlSeconds: number = 600,
+    ttlSeconds: number = 86400,
   ): Promise<void> {
     const key = `match:${matchId}:meta`;
     await this.client.hset(key, meta);

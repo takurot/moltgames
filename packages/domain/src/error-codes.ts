@@ -5,6 +5,7 @@ export const COMMON_ERROR_CODES = [
   'NOT_YOUR_TURN',
   'MATCH_ENDED',
   'SERVICE_UNAVAILABLE',
+  'INTERNAL_ERROR',
 ] as const;
 
 export type CommonErrorCode = (typeof COMMON_ERROR_CODES)[number];

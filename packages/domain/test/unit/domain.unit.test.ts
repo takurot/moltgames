@@ -80,6 +80,7 @@ describe('domain package', () => {
       'NOT_YOUR_TURN',
       'MATCH_ENDED',
       'SERVICE_UNAVAILABLE',
+      'INTERNAL_ERROR',
     ]);
   });
 
