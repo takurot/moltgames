@@ -6,6 +6,7 @@ import {
   type ValidationResult,
 } from '../framework/types.js';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
+import type { JsonValue } from '@moltgames/domain';
 
 export interface PromptInjectionArenaState {
   secret: string;
@@ -113,7 +114,7 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
     action: Action,
   ): ApplyActionResult<PromptInjectionArenaState> {
     const nextState = { ...state };
-    let result: any = { status: 'ok' };
+    let result: JsonValue = { status: 'ok' };
 
     if (action.tool === 'send_message') {
       nextState.history.push({

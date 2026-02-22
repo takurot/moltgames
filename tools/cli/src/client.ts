@@ -64,25 +64,29 @@ export class Client {
     });
   }
 
-  private handleMessage(message: any): void {
-    switch (message.type) {
+  private handleMessage(message: unknown): void {
+    if (typeof message !== 'object' || message === null) {
+      return;
+    }
+    const msg = message as Record<string, unknown>;
+    switch (msg.type) {
       case 'session/ready':
-        this.sessionId = message.session_id;
+        this.sessionId = msg.session_id;
         console.log(`Session ready: ${this.sessionId}`);
         break;
       case 'session/resumed':
         console.log('Session resumed');
         break;
       case 'tools/list':
-        this.tools = message.tools;
-        console.log('Received tools:', this.tools.map(t => t.name).join(', '));
+        this.tools = msg.tools;
+        console.log('Received tools:', this.tools.map((t) => t.name).join(', '));
         break;
       case 'tools/list_changed':
-        this.tools = message.tools;
-        console.log('Tools updated:', this.tools.map(t => t.name).join(', '));
+        this.tools = msg.tools;
+        console.log('Tools updated:', this.tools.map((t) => t.name).join(', '));
         break;
       case 'match/ended':
-        console.log('Match ended:', message.reason);
+        console.log('Match ended:', msg.reason);
         this.close();
         break;
       case 'DRAINING':
@@ -90,10 +94,10 @@ export class Client {
         break;
       default:
         // Handle tool responses or other messages
-        if (message.status === 'ok' || message.status === 'error') {
-          console.log('Tool response:', message);
+        if (msg.status === 'ok' || msg.status === 'error') {
+          console.log('Tool response:', msg);
         } else {
-          console.log('Unhandled message:', message);
+          console.log('Unhandled message:', msg);
         }
     }
   }
@@ -120,7 +124,7 @@ export class Client {
     }
   }
 
-  callTool(name: string, requestId: string, args: Record<string, any>): void {
+  callTool(name: string, requestId: string, args: Record<string, unknown>): void {
     this.send({
       tool: name,
       request_id: requestId,

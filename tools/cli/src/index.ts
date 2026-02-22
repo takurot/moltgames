@@ -30,8 +30,8 @@ program
         client.close();
         process.exit(0);
       });
-    } catch (error: any) {
-      console.error('Failed to connect:', error.message);
+    } catch (error: unknown) {
+      console.error('Failed to connect:', error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
   });
