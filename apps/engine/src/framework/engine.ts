@@ -132,6 +132,34 @@ export class Engine {
     });
   }
 
+  async getAvailableTools(matchId: string): Promise<ReturnType<GamePlugin['getAvailableTools']>> {
+    const [meta, state] = await Promise.all([
+      this.redis.getMatchMeta(matchId),
+      this.redis.getMatchState(matchId),
+    ]);
+
+    if (!meta) {
+      throw new Error(`Match not found: ${matchId}`);
+    }
+
+    if (!state) {
+      throw new Error(`Match state not found: ${matchId}`);
+    }
+
+    const gameId = meta.gameId;
+    if (!gameId) {
+      throw new Error(`Match meta missing gameId: ${matchId}`);
+    }
+
+    const plugin = this.plugins.get(gameId);
+    if (!plugin) {
+      throw new Error(`Game plugin not found: ${gameId}`);
+    }
+
+    const phase = meta.phase ?? 'default';
+    return plugin.getAvailableTools(state, phase);
+  }
+
   async processAction(matchId: string, action: Action): Promise<ProcessActionResponse> {
     // 0. Check Idempotency
     const isProcessed = await this.redis.checkRequestIdProcessed(matchId, action.request_id);
