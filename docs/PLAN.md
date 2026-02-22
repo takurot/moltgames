@@ -333,7 +333,7 @@ graph TD
 
 タスク:
 
-- [ ] E2E テストスクリプト
+- [x] E2E テストスクリプト
   1. Firebase Emulators 起動
   2. Gateway + Engine 起動
   3. ユーザー登録 → ログイン
@@ -341,9 +341,9 @@ graph TD
   5. 2 つのエージェント接続
   6. Prompt Injection Arena を最後までプレイ
   7. マッチ状態が `FINISHED` であることを検証
-- [ ] Docker Compose でのローカル統合テスト環境
-- [ ] CI に E2E テストを組み込み
-- [ ] dev 環境への手動デプロイ Runbook を整備し、1 回ドライラン実施 (§14 Phase 0)
+- [x] Docker Compose でのローカル統合テスト環境
+- [x] CI に E2E テストを組み込み
+- [x] dev 環境への手動デプロイ Runbook を整備し、1 回ドライラン実施 (§14 Phase 0)
 
 **✅ Phase 0 マイルストーン: この PR のマージでE2E 接続検証完了**
 
