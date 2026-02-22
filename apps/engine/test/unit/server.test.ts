@@ -10,6 +10,7 @@ const mockPlugin: GamePlugin<{ turn: number }> = {
   ruleVersion: '1.0.0',
   initialize: () => ({ turn: 1 }),
   getTurn: (state) => state.turn,
+  consumeTurn: (state) => ({ ...state, turn: state.turn + 1 }),
   getAvailableTools: () => [],
   validateAction: () => ({ valid: true }),
   applyAction: (state, _action: Action) => ({ state, result: { ok: true } }),

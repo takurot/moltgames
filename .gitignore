@@ -13,3 +13,7 @@ coverage
 *.tfstate.*
 terraform.tfvars
 terraform.tfvars.json
+
+# Local prompt best-practice notes (do not commit)
+docs/BP_ANTHROPIC.md
+docs/BP_OPENAI.md

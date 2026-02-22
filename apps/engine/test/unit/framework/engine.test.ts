@@ -78,6 +78,9 @@ class MockGamePlugin implements GamePlugin<any> {
   getTurn(state: any) {
     return state.turn;
   }
+  consumeTurn(state: any) {
+    return { ...state, turn: state.turn + 1 };
+  }
   getAvailableTools() {
     return [];
   }
@@ -120,6 +123,7 @@ describe('Engine', () => {
     expect(meta).toEqual(
       expect.objectContaining({
         gameId: 'test-game',
+        seed: '123',
         turn: '1',
         retryCount: '0',
         turnTimeoutSec: '30',
@@ -135,7 +139,7 @@ describe('Engine', () => {
     const action: Action = { tool: 'move', request_id: 'req1', args: {} };
     const result = await engine.processAction(matchId, action);
 
-    expect(result.status).toBe('ok');
+    expect(result).toMatchObject({ status: 'ok', request_id: 'req1' });
     if (result.status === 'ok') {
       expect(result.result).toEqual({ success: true });
     }
@@ -154,7 +158,7 @@ describe('Engine', () => {
     const action: Action = { tool: 'retryable_error', request_id: 'req2', args: {} };
     const result = await engine.processAction(matchId, action);
 
-    expect(result.status).toBe('error');
+    expect(result).toMatchObject({ status: 'error', request_id: 'req2' });
     if (result.status === 'error') {
       expect(result.error.code).toBe('VALIDATION_ERROR');
       expect(result.error.retryable).toBe(true);
@@ -182,18 +186,34 @@ describe('Engine', () => {
     let meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
 
+    const metaBeforeSecondFailure = await redisManager.getMatchMeta(matchId);
     const secondResult = await engine.processAction(matchId, {
       tool: 'retryable_error',
       request_id: 'req3-2',
       args: {},
     });
-    expect(secondResult.status).toBe('error');
+    expect(secondResult).toMatchObject({ status: 'error', request_id: 'req3-2' });
     if (secondResult.status === 'error') {
       expect(secondResult.error.code).toBe('VALIDATION_ERROR');
       expect(secondResult.error.retryable).toBe(false);
     }
     meta = await redisManager.getMatchMeta(matchId);
-    expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
+    expect(meta).toEqual(expect.objectContaining({ turn: '2', retryCount: '0' }));
+    expect(Number(meta?.turnStartedAtMs)).toBeGreaterThanOrEqual(
+      Number(metaBeforeSecondFailure?.turnStartedAtMs ?? '0'),
+    );
+
+    const thirdResult = await engine.processAction(matchId, {
+      tool: 'move',
+      request_id: 'req3-3',
+      args: {},
+    });
+    expect(thirdResult).toMatchObject({ status: 'ok', request_id: 'req3-3' });
+
+    const stateAfterConsumeThenMove = await redisManager.getMatchState<{ turn: number }>(matchId);
+    expect(stateAfterConsumeThenMove).toEqual(expect.objectContaining({ turn: 3 }));
+    meta = await redisManager.getMatchMeta(matchId);
+    expect(meta).toEqual(expect.objectContaining({ turn: '3', retryCount: '0' }));
   });
 
   it('should fail immediately on non-retryable error', async () => {
@@ -203,7 +223,7 @@ describe('Engine', () => {
     const action: Action = { tool: 'invalid', request_id: 'req4', args: {} };
     const result = await engine.processAction(matchId, action);
 
-    expect(result.status).toBe('error');
+    expect(result).toMatchObject({ status: 'error', request_id: 'req4' });
     if (result.status === 'error') {
       expect(result.error.retryable).toBe(false);
     }
@@ -222,7 +242,7 @@ describe('Engine', () => {
     const action: Action = { tool: 'move', request_id: 'req5', args: {} };
     const result = await engine.processAction(matchId, action);
 
-    expect(result.status).toBe('error');
+    expect(result).toMatchObject({ status: 'error', request_id: 'req5' });
     if (result.status === 'error') {
       expect(result.error.code).toBe('SERVICE_UNAVAILABLE');
       expect(result.error.message).toContain('lock');
@@ -247,10 +267,22 @@ describe('Engine', () => {
     const action: Action = { tool: 'move', request_id: 'req-timeout', args: {} };
     const result = await engine.processAction(matchId, action);
 
-    expect(result.status).toBe('error');
+    expect(result).toMatchObject({ status: 'error', request_id: 'req-timeout' });
     if (result.status === 'error') {
       expect(result.error.code).toBe('TURN_EXPIRED');
       expect(result.error.retryable).toBe(false);
     }
+  });
+
+  it('should return cached idempotent response with request_id', async () => {
+    const matchId = 'match-8';
+    await engine.startMatch(matchId, 'test-game', 123);
+
+    const action: Action = { tool: 'move', request_id: 'req-cache', args: {} };
+    const first = await engine.processAction(matchId, action);
+    const second = await engine.processAction(matchId, action);
+
+    expect(first).toMatchObject({ request_id: 'req-cache' });
+    expect(second).toEqual(first);
   });
 });

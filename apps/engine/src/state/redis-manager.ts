@@ -7,6 +7,7 @@ if redis.call("GET", KEYS[1]) == ARGV[1] then
 end
 return 0
 `;
+const LIVE_STATE_TTL_SECONDS = 600;
 
 export class RedisManager {
   private client: Redis;
@@ -21,7 +22,11 @@ export class RedisManager {
     return JSON.parse(data) as S;
   }
 
-  async saveMatchState<S>(matchId: string, state: S, ttlSeconds: number = 86400): Promise<void> {
+  async saveMatchState<S>(
+    matchId: string,
+    state: S,
+    ttlSeconds: number = LIVE_STATE_TTL_SECONDS,
+  ): Promise<void> {
     await this.client.setex(`match:${matchId}:state`, ttlSeconds, JSON.stringify(state));
   }
 
@@ -34,7 +39,7 @@ export class RedisManager {
   async saveMatchMeta(
     matchId: string,
     meta: Record<string, string | number>,
-    ttlSeconds: number = 86400,
+    ttlSeconds: number = LIVE_STATE_TTL_SECONDS,
   ): Promise<void> {
     const key = `match:${matchId}:meta`;
     await this.client.hset(key, meta);
@@ -62,7 +67,7 @@ export class RedisManager {
     matchId: string,
     requestId: string,
     response: JsonValue,
-    ttlSeconds: number = 86400,
+    ttlSeconds: number = LIVE_STATE_TTL_SECONDS,
   ): Promise<void> {
     const key = `match:${matchId}:request:${requestId}`;
     await this.client.setex(key, ttlSeconds, JSON.stringify(response));

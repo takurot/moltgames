@@ -216,7 +216,7 @@ graph TD
 
 タスク:
 
-- [ ] ゲームプラグインインターフェース (`GamePlugin`) の設計
+- [x] ゲームプラグインインターフェース (`GamePlugin`) の設計
   ```typescript
   interface GamePlugin {
     gameId: string;
@@ -224,18 +224,19 @@ graph TD
     initialize(seed: number): GameState;
     getAvailableTools(state: GameState, phase: string): ToolDefinition[];
     validateAction(state: GameState, action: Action): ValidationResult;
+    consumeTurn(state: GameState): GameState;
     applyAction(state: GameState, action: Action): GameState;
     checkTermination(state: GameState): TerminationResult | null;
   }
   ```
-- [ ] ターン進行ループ
+- [x] ターン進行ループ
   - 思考時間タイムアウト (デフォルト 30 秒、ゲーム別上書き) (§5.3)
   - `VALIDATION_ERROR` 再試行 (1 ターン 1 回) (§7)
   - `request_id` ベースの冪等処理
-- [ ] 対戦ごとのシード固定 + ルールバージョン記録 (§9)
-- [ ] Redis 対戦状態管理 (`match:{matchId}:state`, `turn-lock`)
-- [ ] `Dockerfile` + `cloudbuild.yaml`
-- [ ] ユニットテスト: ターン進行、タイムアウト、冪等処理
+- [x] 対戦ごとのシード固定 + ルールバージョン記録 (§9)
+- [x] Redis 対戦状態管理 (`match:{matchId}:state`, `turn-lock`)
+- [x] `Dockerfile` + `cloudbuild.yaml`
+- [x] ユニットテスト: ターン進行、タイムアウト、冪等処理
 
 ---
 

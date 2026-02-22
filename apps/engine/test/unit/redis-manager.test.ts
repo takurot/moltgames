@@ -55,4 +55,24 @@ describe('RedisManager', () => {
     const cached = await redisManager.getProcessedResponse(matchId, requestId);
     expect(cached).toEqual(response);
   });
+
+  it('should use 10-minute default ttl for live state and idempotency cache', async () => {
+    const matchId = 'match-ttl';
+    const requestId = 'req-ttl';
+    await redisManager.saveMatchState(matchId, { foo: 'bar' });
+    await redisManager.saveMatchMeta(matchId, { gameId: 'test-game' });
+    await redisManager.markRequestIdProcessed(matchId, requestId, { status: 'ok', result: {} });
+
+    const client = (redisManager as any).client;
+    const stateTtl = await client.ttl(`match:${matchId}:state`);
+    const metaTtl = await client.ttl(`match:${matchId}:meta`);
+    const requestTtl = await client.ttl(`match:${matchId}:request:${requestId}`);
+
+    expect(stateTtl).toBeGreaterThan(0);
+    expect(metaTtl).toBeGreaterThan(0);
+    expect(requestTtl).toBeGreaterThan(0);
+    expect(stateTtl).toBeLessThanOrEqual(600);
+    expect(metaTtl).toBeLessThanOrEqual(600);
+    expect(requestTtl).toBeLessThanOrEqual(600);
+  });
 });
