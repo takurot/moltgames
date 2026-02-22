@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { Engine } from './framework/engine.js';
 import { RedisManager } from './state/redis-manager.js';
 import type { Action } from './framework/types.js';
+import { PromptInjectionArena } from './games/prompt-injection-arena.js';
 
 export const createServer = async () => {
   const fastify = Fastify({
@@ -15,7 +16,8 @@ export const createServer = async () => {
   const redisManager = new RedisManager(redisUrl);
   const engine = new Engine(redisManager);
 
-  // TODO: Register game plugins here (PR-08, 09, 10)
+  // Register game plugins
+  engine.registerPlugin(new PromptInjectionArena());
 
   fastify.post<{ Params: { matchId: string }; Body: { gameId: string; seed: number } }>(
     '/matches/:matchId/start',
@@ -77,6 +79,34 @@ export const createServer = async () => {
       try {
         const result = await engine.processAction(matchId, action);
         return result;
+      } catch (error: unknown) {
+        request.log.error(error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        reply.status(500).send({ status: 'error', message });
+      }
+    },
+  );
+
+  fastify.get<{ Params: { matchId: string } }>(
+    '/matches/:matchId/tools',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['matchId'],
+          additionalProperties: false,
+          properties: {
+            matchId: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { matchId } = request.params;
+
+      try {
+        const tools = await engine.getAvailableTools(matchId);
+        return { status: 'ok', tools };
       } catch (error: unknown) {
         request.log.error(error);
         const message = error instanceof Error ? error.message : 'Unknown error';
