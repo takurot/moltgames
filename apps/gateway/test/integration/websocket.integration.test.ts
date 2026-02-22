@@ -139,7 +139,9 @@ const isSessionReady = (value: unknown): value is { type: 'session/ready'; sessi
   (value as Record<string, unknown>).type === 'session/ready' &&
   typeof (value as Record<string, unknown>).session_id === 'string';
 
-const isSessionResumed = (value: unknown): value is { type: 'session/resumed'; session_id: string } =>
+const isSessionResumed = (
+  value: unknown,
+): value is { type: 'session/resumed'; session_id: string } =>
   typeof value === 'object' &&
   value !== null &&
   (value as Record<string, unknown>).type === 'session/resumed' &&

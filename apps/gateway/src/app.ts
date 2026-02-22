@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import websocket, { type SocketStream } from '@fastify/websocket';
+import websocket from '@fastify/websocket';
 import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -89,7 +89,10 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
         {},
       );
 
-      if (!Array.isArray(response.tools) || !response.tools.every((tool) => isMcpToolDefinition(tool))) {
+      if (
+        !Array.isArray(response.tools) ||
+        !response.tools.every((tool) => isMcpToolDefinition(tool))
+      ) {
         throw new Error('Engine returned invalid tools payload');
       }
 
@@ -127,7 +130,12 @@ const getQueryStringValue = (value: unknown): string | null => {
     return value;
   }
 
-  if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string' && value[0].length > 0) {
+  if (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    typeof value[0] === 'string' &&
+    value[0].length > 0
+  ) {
     return value[0];
   }
 
@@ -136,7 +144,20 @@ const getQueryStringValue = (value: unknown): string | null => {
 
 const serializeTools = (tools: MCPToolDefinition[]): string => JSON.stringify(tools);
 
-const sendJson = (socket: WebSocket | undefined | null, payload: unknown, log?: any): void => {
+interface MinimalLogger {
+  warn(msg: string): void;
+  warn(obj: object, msg?: string): void;
+  error(msg: string): void;
+  error(obj: object, msg?: string): void;
+  info(msg: string): void;
+  info(obj: object, msg?: string): void;
+}
+
+const sendJson = (
+  socket: WebSocket | undefined | null,
+  payload: unknown,
+  log?: MinimalLogger,
+): void => {
   if (!socket) {
     return;
   }
@@ -321,10 +342,14 @@ export const createApp = async (options: AppOptions = {}) => {
       const nextFingerprint = serializeTools(nextTools);
 
       if (nextFingerprint !== session.toolsFingerprint && session.socket !== null) {
-        sendJson(session.socket, {
-          type: 'tools/list_changed',
-          tools: nextTools,
-        }, app.log);
+        sendJson(
+          session.socket,
+          {
+            type: 'tools/list_changed',
+            tools: nextTools,
+          },
+          app.log,
+        );
         session.tools = nextTools;
         session.toolsFingerprint = nextFingerprint;
       }
@@ -342,7 +367,7 @@ export const createApp = async (options: AppOptions = {}) => {
       return;
     }
 
-    socket.on('message', async (rawData) => {
+    socket.on('message', async (rawData: RawData) => {
       if (session.socket !== socket) {
         return;
       }
@@ -413,7 +438,7 @@ export const createApp = async (options: AppOptions = {}) => {
       scheduleForfeit(session);
     });
 
-    socket.on('error', (error) => {
+    socket.on('error', (error: Error) => {
       app.log.warn(
         { error, matchId: session.matchId, agentId: session.agentId },
         'WebSocket connection error',
@@ -464,162 +489,199 @@ export const createApp = async (options: AppOptions = {}) => {
   app.post('/v1/tokens', handleConnectTokenRequest);
   app.delete('/v1/tokens/:tokenId', handleConnectTokenRequest);
 
-  app.get('/v1/ws', { websocket: true }, async (connection: SocketStream, request) => {
-    const socket = connection.socket || (connection as unknown as WebSocket);
-    if (!socket) {
-      app.log.warn('WebSocket connection opened but socket is missing');
-      return;
-    }
-
-    const originHeader = typeof request.headers.origin === 'string' ? request.headers.origin : undefined;
-    if (!isOriginAllowed(originHeader, allowedOrigins)) {
-      app.log.warn({ originHeader }, 'Origin not allowed');
-      socket.close(1008, 'Origin not allowed');
-      return;
-    }
-
-    const requestedProtocols = parseRequestedProtocols(request.headers['sec-websocket-protocol']);
-    if (!requestedProtocols.includes(SUPPORTED_WS_PROTOCOL)) {
-      app.log.warn({ requestedProtocols }, 'Unsupported protocol');
-      socket.close(1002, 'Unsupported protocol');
-      return;
-    }
-
-    const query = request.query as Record<string, unknown>;
-    const sessionId = getQueryStringValue(query.session_id);
-    const connectToken = getQueryStringValue(query.connect_token);
-
-    if (sessionId !== null) {
-      const session = sessionsById.get(sessionId);
-      if (!session) {
-        sendJson(socket, {
-          type: 'match/ended',
-          reason: 'FORFEIT_LOSS',
-          retryable: false,
-        }, app.log);
-        socket.close(1008, 'Session not found');
+  app.get(
+    '/v1/ws',
+    { websocket: true },
+    async (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      connection: any,
+      request,
+    ) => {
+      const socket = connection.socket || (connection as unknown as WebSocket);
+      if (!socket) {
+        app.log.warn('WebSocket connection opened but socket is missing');
         return;
       }
 
-      if (
-        session.reconnectDeadlineAtMs !== null &&
-        Date.now() > session.reconnectDeadlineAtMs
-      ) {
-        sessionsById.delete(session.id);
-        sessionIdByMatchAgent.delete(toSessionLookupKey(session.matchId, session.agentId));
-        sendJson(socket, {
-          type: 'match/ended',
-          reason: 'FORFEIT_LOSS',
-          retryable: false,
-        }, app.log);
-        socket.close(1008, 'Reconnect grace period exceeded');
+      const originHeader =
+        typeof request.headers.origin === 'string' ? request.headers.origin : undefined;
+      if (!isOriginAllowed(originHeader, allowedOrigins)) {
+        app.log.warn({ originHeader }, 'Origin not allowed');
+        socket.close(1008, 'Origin not allowed');
         return;
       }
 
-      clearSessionTimer(session);
-      session.reconnectDeadlineAtMs = null;
-
-      if (session.socket && session.socket.readyState === WebSocket.OPEN) {
-        session.socket.close(1012, 'Superseded by new connection');
-      }
-
-      session.socket = socket;
-      app.log.info({ sessionId: session.id }, 'Session resumed');
-      sendJson(socket, {
-        type: 'session/resumed',
-        session_id: session.id,
-      }, app.log);
-      sendJson(socket, {
-        type: 'tools/list',
-        tools: session.tools,
-      }, app.log);
-      bindSocketHandlers(session);
-      return;
-    }
-
-    if (connectToken === null) {
-      socket.close(1008, 'connect_token or session_id is required');
-      return;
-    }
-
-    let claims;
-    try {
-      claims = await service.consumeToken(connectToken);
-    } catch (error) {
-      if (error instanceof ConnectTokenError) {
-        socket.close(1008, error.code);
+      const requestedProtocols = parseRequestedProtocols(request.headers['sec-websocket-protocol']);
+      if (!requestedProtocols.includes(SUPPORTED_WS_PROTOCOL)) {
+        app.log.warn({ requestedProtocols }, 'Unsupported protocol');
+        socket.close(1002, 'Unsupported protocol');
         return;
       }
 
-      app.log.error({ error }, 'Failed to verify connect token');
-      socket.close(1011, 'Failed to verify connect token');
-      return;
-    }
+      const query = request.query as Record<string, unknown>;
+      const sessionId = getQueryStringValue(query.session_id);
+      const connectToken = getQueryStringValue(query.connect_token);
 
-    const sessionKey = toSessionLookupKey(claims.matchId, claims.agentId);
-    const existingSessionId = sessionIdByMatchAgent.get(sessionKey);
-    if (existingSessionId !== undefined) {
-      const existingSession = sessionsById.get(existingSessionId);
-      if (existingSession !== undefined) {
-        clearSessionTimer(existingSession);
-        sessionsById.delete(existingSession.id);
+      if (sessionId !== null) {
+        const session = sessionsById.get(sessionId);
+        if (!session) {
+          sendJson(
+            socket,
+            {
+              type: 'match/ended',
+              reason: 'FORFEIT_LOSS',
+              retryable: false,
+            },
+            app.log,
+          );
+          socket.close(1008, 'Session not found');
+          return;
+        }
+
+        if (session.reconnectDeadlineAtMs !== null && Date.now() > session.reconnectDeadlineAtMs) {
+          sessionsById.delete(session.id);
+          sessionIdByMatchAgent.delete(toSessionLookupKey(session.matchId, session.agentId));
+          sendJson(
+            socket,
+            {
+              type: 'match/ended',
+              reason: 'FORFEIT_LOSS',
+              retryable: false,
+            },
+            app.log,
+          );
+          socket.close(1008, 'Reconnect grace period exceeded');
+          return;
+        }
+
+        clearSessionTimer(session);
+        session.reconnectDeadlineAtMs = null;
+
+        if (session.socket && session.socket.readyState === WebSocket.OPEN) {
+          session.socket.close(1012, 'Superseded by new connection');
+        }
+
+        session.socket = socket;
+        app.log.info({ sessionId: session.id }, 'Session resumed');
+        sendJson(
+          socket,
+          {
+            type: 'session/resumed',
+            session_id: session.id,
+          },
+          app.log,
+        );
+        sendJson(
+          socket,
+          {
+            type: 'tools/list',
+            tools: session.tools,
+          },
+          app.log,
+        );
+        bindSocketHandlers(session);
+        return;
       }
-      sessionIdByMatchAgent.delete(sessionKey);
-    }
 
-    let tools: MCPToolDefinition[];
-    try {
-      tools = await engineClient.getTools(claims.matchId, claims.agentId);
-    } catch (error) {
-      app.log.error(
-        { error, matchId: claims.matchId, agentId: claims.agentId },
-        'Failed to load tools from engine',
+      if (connectToken === null) {
+        socket.close(1008, 'connect_token or session_id is required');
+        return;
+      }
+
+      let claims;
+      try {
+        claims = await service.consumeToken(connectToken);
+      } catch (error) {
+        if (error instanceof ConnectTokenError) {
+          socket.close(1008, error.code);
+          return;
+        }
+
+        app.log.error({ error }, 'Failed to verify connect token');
+        socket.close(1011, 'Failed to verify connect token');
+        return;
+      }
+
+      const sessionKey = toSessionLookupKey(claims.matchId, claims.agentId);
+      const existingSessionId = sessionIdByMatchAgent.get(sessionKey);
+      if (existingSessionId !== undefined) {
+        const existingSession = sessionsById.get(existingSessionId);
+        if (existingSession !== undefined) {
+          clearSessionTimer(existingSession);
+          sessionsById.delete(existingSession.id);
+        }
+        sessionIdByMatchAgent.delete(sessionKey);
+      }
+
+      let tools: MCPToolDefinition[];
+      try {
+        tools = await engineClient.getTools(claims.matchId, claims.agentId);
+      } catch (error) {
+        app.log.error(
+          { error, matchId: claims.matchId, agentId: claims.agentId },
+          'Failed to load tools from engine',
+        );
+        socket.close(1013, 'Service unavailable');
+        return;
+      }
+
+      const session: AgentSession = {
+        id: randomUUID(),
+        uid: claims.uid,
+        matchId: claims.matchId,
+        agentId: claims.agentId,
+        tools,
+        toolsFingerprint: serializeTools(tools),
+        socket,
+        forfeitTimer: null,
+        reconnectDeadlineAtMs: null,
+      };
+
+      sessionsById.set(session.id, session);
+      sessionIdByMatchAgent.set(sessionKey, session.id);
+
+      app.log.info(
+        { sessionId: session.id, matchId: session.matchId, agentId: session.agentId },
+        'Session ready',
       );
-      socket.close(1013, 'Service unavailable');
-      return;
-    }
+      sendJson(
+        socket,
+        {
+          type: 'session/ready',
+          session_id: session.id,
+          reconnect: {
+            grace_ms: reconnectGraceMs,
+            backoff_initial_ms: RECONNECT_BACKOFF_INITIAL_MS,
+            backoff_max_ms: RECONNECT_BACKOFF_MAX_MS,
+          },
+        },
+        app.log,
+      );
+      sendJson(
+        socket,
+        {
+          type: 'tools/list',
+          tools,
+        },
+        app.log,
+      );
 
-    const session: AgentSession = {
-      id: randomUUID(),
-      uid: claims.uid,
-      matchId: claims.matchId,
-      agentId: claims.agentId,
-      tools,
-      toolsFingerprint: serializeTools(tools),
-      socket,
-      forfeitTimer: null,
-      reconnectDeadlineAtMs: null,
-    };
-
-    sessionsById.set(session.id, session);
-    sessionIdByMatchAgent.set(sessionKey, session.id);
-
-    app.log.info({ sessionId: session.id, matchId: session.matchId, agentId: session.agentId }, 'Session ready');
-    sendJson(socket, {
-      type: 'session/ready',
-      session_id: session.id,
-      reconnect: {
-        grace_ms: reconnectGraceMs,
-        backoff_initial_ms: RECONNECT_BACKOFF_INITIAL_MS,
-        backoff_max_ms: RECONNECT_BACKOFF_MAX_MS,
-      },
-    }, app.log);
-    sendJson(socket, {
-      type: 'tools/list',
-      tools,
-    }, app.log);
-
-    bindSocketHandlers(session);
-  });
+      bindSocketHandlers(session);
+    },
+  );
 
   app.addHook('onClose', async () => {
     for (const session of sessionsById.values()) {
       clearSessionTimer(session);
       if (session.socket && session.socket.readyState === WebSocket.OPEN) {
-        sendJson(session.socket, {
-          type: 'DRAINING',
-          reconnect_after_ms: RECONNECT_BACKOFF_INITIAL_MS,
-        }, app.log);
+        sendJson(
+          session.socket,
+          {
+            type: 'DRAINING',
+            reconnect_after_ms: RECONNECT_BACKOFF_INITIAL_MS,
+          },
+          app.log,
+        );
         session.socket.close(1012, 'DRAINING');
       }
     }
