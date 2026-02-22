@@ -371,6 +371,11 @@ export const createApp = async (options: AppOptions = {}) => {
     }
   };
 
+  const notifyMatchSessionsOfChange = async (matchId: string): Promise<void> => {
+    const sessions = Array.from(sessionsById.values()).filter((s) => s.matchId === matchId);
+    await Promise.all(sessions.map((s) => refreshToolsAndNotify(s)));
+  };
+
   const bindSocketHandlers = (session: AgentSession): void => {
     const socket = session.socket;
     if (socket === null) {
@@ -418,7 +423,9 @@ export const createApp = async (options: AppOptions = {}) => {
           : mapRuntimeErrorToToolResponse(request.request_id, new Error('Invalid engine response'));
 
         sendJson(socket, normalizedResponse, app.log);
-        await refreshToolsAndNotify(session);
+        
+        // Notify all agents in this match that the state/tools might have changed
+        await notifyMatchSessionsOfChange(session.matchId);
       } catch (error) {
         if (error instanceof Error && error.message === 'Invalid MCP tool call request') {
           const response: ToolCallResponse = {
