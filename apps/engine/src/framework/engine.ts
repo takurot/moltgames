@@ -1,9 +1,98 @@
-import type { GamePlugin, Action } from './types.js';
+import { randomUUID } from 'node:crypto';
+import type { Action, GamePlugin, TerminationResult } from './types.js';
 import type { RedisManager } from '../state/redis-manager.js';
-import type { JsonValue, CommonErrorCode } from '@moltgames/domain';
+import {
+  isCommonErrorCode,
+  isJsonValue,
+  isRecord,
+  type CommonErrorCode,
+  type JsonValue,
+} from '@moltgames/domain';
 
-const MAX_RETRIES = 3;
-const LOCK_TTL_SECONDS = 5;
+const MAX_RETRIES = 1;
+const DEFAULT_TURN_TIMEOUT_SECONDS = 30;
+const LOCK_TTL_EXTRA_SECONDS = 5;
+
+type ProcessActionOkResponse =
+  | { status: 'ok'; result: JsonValue }
+  | { status: 'ok'; result: JsonValue; termination: TerminationResult };
+
+type ProcessActionErrorResponse = {
+  status: 'error';
+  error: { code: CommonErrorCode; message: string; retryable: boolean };
+};
+
+type ProcessActionResponse = ProcessActionOkResponse | ProcessActionErrorResponse;
+
+const parsePositiveInt = (value: string | undefined): number | null => {
+  if (value === undefined) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const parseNonNegativeInt = (value: string | undefined): number | null => {
+  if (value === undefined) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const isTerminationResult = (value: unknown): value is TerminationResult => {
+  if (!isRecord(value) || typeof value.ended !== 'boolean') {
+    return false;
+  }
+
+  if ('winner' in value && value.winner !== undefined && typeof value.winner !== 'string') {
+    return false;
+  }
+
+  if ('reason' in value && value.reason !== undefined && typeof value.reason !== 'string') {
+    return false;
+  }
+
+  return true;
+};
+
+const isProcessActionResponse = (value: unknown): value is ProcessActionResponse => {
+  if (!isRecord(value) || (value.status !== 'ok' && value.status !== 'error')) {
+    return false;
+  }
+
+  if (value.status === 'ok') {
+    if (!isJsonValue(value.result)) {
+      return false;
+    }
+
+    if ('termination' in value) {
+      return isTerminationResult(value.termination);
+    }
+
+    return true;
+  }
+
+  if (!isRecord(value.error)) {
+    return false;
+  }
+
+  return (
+    isCommonErrorCode(value.error.code) &&
+    typeof value.error.message === 'string' &&
+    typeof value.error.retryable === 'boolean'
+  );
+};
 
 export class Engine {
   private plugins = new Map<string, GamePlugin>();
@@ -22,23 +111,34 @@ export class Engine {
 
     const state = plugin.initialize(seed);
     const turn = plugin.getTurn(state);
+    const turnTimeoutSeconds = this.getTurnTimeoutSeconds(null, plugin);
+    const turnStartedAtMs = Date.now().toString();
 
     await this.redis.saveMatchState(matchId, state);
     await this.redis.saveMatchMeta(matchId, {
       gameId,
+      ruleVersion: plugin.ruleVersion,
       turn: turn.toString(),
       retryCount: '0',
+      turnTimeoutSec: turnTimeoutSeconds.toString(),
+      turnStartedAtMs,
     });
   }
 
-  async processAction(
-    matchId: string,
-    action: Action,
-  ): Promise<
-    | { status: 'ok'; result: JsonValue }
-    | { status: 'error'; error: { code: CommonErrorCode; message: string; retryable: boolean } }
-  > {
-    const locked = await this.redis.acquireTurnLock(matchId, LOCK_TTL_SECONDS);
+  async processAction(matchId: string, action: Action): Promise<ProcessActionResponse> {
+    // 0. Check Idempotency
+    const isProcessed = await this.redis.checkRequestIdProcessed(matchId, action.request_id);
+    if (isProcessed) {
+      const cached = await this.redis.getProcessedResponse(matchId, action.request_id);
+      if (isProcessActionResponse(cached)) {
+        return cached;
+      }
+    }
+
+    const lockOwnerToken = randomUUID();
+    const lockTtlSeconds =
+      this.getTurnTimeoutSeconds(await this.redis.getMatchMeta(matchId)) + LOCK_TTL_EXTRA_SECONDS;
+    const locked = await this.redis.acquireTurnLock(matchId, lockTtlSeconds, lockOwnerToken);
     if (!locked) {
       return {
         status: 'error',
@@ -72,7 +172,7 @@ export class Engine {
         return {
           status: 'error',
           error: {
-            code: 'INTERNAL_ERROR',
+            code: 'INTERNAL_ERROR' as CommonErrorCode,
             message: `Match state not found: ${matchId}`,
             retryable: false,
           },
@@ -84,7 +184,7 @@ export class Engine {
         return {
           status: 'error',
           error: {
-            code: 'INTERNAL_ERROR',
+            code: 'INTERNAL_ERROR' as CommonErrorCode,
             message: `Match meta missing gameId: ${matchId}`,
             retryable: false,
           },
@@ -96,17 +196,35 @@ export class Engine {
         return {
           status: 'error',
           error: {
-            code: 'INTERNAL_ERROR',
+            code: 'INTERNAL_ERROR' as CommonErrorCode,
             message: `Game plugin not found: ${gameId}`,
             retryable: false,
           },
         };
       }
 
+      const turnTimeoutSeconds = this.getTurnTimeoutSeconds(meta, plugin);
+      if (this.isTurnExpired(meta, turnTimeoutSeconds)) {
+        const response: ProcessActionErrorResponse = {
+          status: 'error',
+          error: {
+            code: 'TURN_EXPIRED',
+            message: `Turn exceeded ${turnTimeoutSeconds} seconds`,
+            retryable: false,
+          },
+        };
+        await this.redis.markRequestIdProcessed(
+          matchId,
+          action.request_id,
+          this.toCacheResponse(response),
+        );
+        return response;
+      }
+
       // 3. Validate
       const validation = plugin.validateAction(state, action);
       if (!validation.valid) {
-        const currentRetryCount = parseInt(meta.retryCount || '0', 10);
+        const currentRetryCount = parseNonNegativeInt(meta.retryCount) ?? 0;
         const isRetryable = validation.retryable !== false && currentRetryCount < MAX_RETRIES;
 
         if (isRetryable) {
@@ -117,22 +235,28 @@ export class Engine {
           });
         }
 
-        return {
+        const response = {
           status: 'error',
           error: {
             code: 'VALIDATION_ERROR',
             message: validation.error || 'Invalid action',
             retryable: isRetryable,
           },
-        };
+        } as const;
+
+        // Mark processed even for validation errors to ensure idempotency
+        await this.redis.markRequestIdProcessed(matchId, action.request_id, response);
+
+        return response;
       }
 
       // 4. Apply Action
       const { state: newState, result } = plugin.applyAction(state, action);
       const newTurn = plugin.getTurn(newState);
+      const currentTurn = parseNonNegativeInt(meta.turn) ?? newTurn;
 
-      // 5. Check Termination (TODO: Handle termination result)
-      // const termination = plugin.checkTermination(newState);
+      // 5. Check Termination
+      const termination = plugin.checkTermination(newState);
 
       // 6. Save State
       await this.redis.saveMatchState(matchId, newState);
@@ -142,15 +266,96 @@ export class Engine {
         ...meta,
         turn: newTurn.toString(),
         retryCount: '0', // Reset on successful action
+        turnTimeoutSec: turnTimeoutSeconds.toString(),
+        turnStartedAtMs:
+          newTurn === currentTurn
+            ? (meta.turnStartedAtMs ?? Date.now().toString())
+            : Date.now().toString(),
       };
       await this.redis.saveMatchMeta(matchId, newMeta);
 
+      const response: ProcessActionOkResponse = termination
+        ? { status: 'ok', result, termination }
+        : { status: 'ok', result };
+
+      await this.redis.markRequestIdProcessed(
+        matchId,
+        action.request_id,
+        this.toCacheResponse(response),
+      );
+
+      return response;
+    } finally {
+      await this.redis.releaseTurnLock(matchId, lockOwnerToken);
+    }
+  }
+
+  private getTurnTimeoutSeconds(meta: Record<string, string> | null, plugin?: GamePlugin): number {
+    const timeoutFromMeta = parsePositiveInt(meta?.turnTimeoutSec);
+    if (timeoutFromMeta !== null) {
+      return timeoutFromMeta;
+    }
+
+    if (
+      plugin?.turnTimeoutSeconds !== undefined &&
+      Number.isInteger(plugin.turnTimeoutSeconds) &&
+      plugin.turnTimeoutSeconds > 0
+    ) {
+      return plugin.turnTimeoutSeconds;
+    }
+
+    return DEFAULT_TURN_TIMEOUT_SECONDS;
+  }
+
+  private isTurnExpired(meta: Record<string, string>, timeoutSeconds: number): boolean {
+    const turnStartedAtMs = parsePositiveInt(meta.turnStartedAtMs);
+    if (turnStartedAtMs === null) {
+      return false;
+    }
+
+    const elapsedMs = Date.now() - turnStartedAtMs;
+    return elapsedMs > timeoutSeconds * 1000;
+  }
+
+  private toCacheResponse(response: ProcessActionResponse): JsonValue {
+    if (response.status === 'error') {
+      return {
+        status: 'error',
+        error: {
+          code: response.error.code,
+          message: response.error.message,
+          retryable: response.error.retryable,
+        },
+      };
+    }
+
+    if ('termination' in response) {
       return {
         status: 'ok',
-        result,
+        result: response.result,
+        termination: this.toCacheTermination(response.termination),
       };
-    } finally {
-      await this.redis.releaseTurnLock(matchId);
     }
+
+    return {
+      status: 'ok',
+      result: response.result,
+    };
+  }
+
+  private toCacheTermination(termination: TerminationResult): JsonValue {
+    const serialized: Record<string, JsonValue> = {
+      ended: termination.ended,
+    };
+
+    if (termination.winner !== undefined) {
+      serialized.winner = termination.winner;
+    }
+
+    if (termination.reason !== undefined) {
+      serialized.reason = termination.reason;
+    }
+
+    return serialized;
   }
 }

@@ -3,6 +3,7 @@ import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
 
 export interface Action {
   tool: string;
+  request_id: string;
   args: JsonObject;
 }
 
@@ -26,6 +27,7 @@ export interface TerminationResult {
 export interface GamePlugin<S = unknown> {
   gameId: string;
   ruleVersion: string;
+  turnTimeoutSeconds?: number;
   initialize(seed: number): S;
   getTurn(state: S): number;
   getAvailableTools(state: S, phase: string): MCPToolDefinition[];

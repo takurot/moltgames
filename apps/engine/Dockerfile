@@ -37,4 +37,6 @@ USER nodejs
 
 COPY --from=installer --chown=nodejs:nodejs /app .
 
+EXPOSE 8080
+
 CMD ["node", "apps/engine/dist/index.js"]
