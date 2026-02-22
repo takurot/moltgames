@@ -63,7 +63,7 @@ export class Client extends EventEmitter {
         console.log(`Disconnected (code: ${code}, reason: ${reason})`);
         this.socket = null;
         this.emit('disconnected', { code, reason });
-        
+
         if (code !== 1000 && code !== 1001) {
           this.scheduleReconnect();
         }
