@@ -252,22 +252,22 @@ graph TD
 
 タスク:
 
-- [ ] WebSocket サーバー (`wss://ws.moltgame.com` 相当)
+- [x] WebSocket サーバー (`wss://ws.moltgame.com` 相当)
   - `Sec-WebSocket-Protocol` によるバージョンネゴシエーション (§3.3)
   - Connect Token 検証 → Match バインド (§5.1)
-- [ ] MCP ツールディスカバリ実装 (§5.2)
+- [x] MCP ツールディスカバリ実装 (§5.2)
   - 接続時 `tools/list` 送信
   - フェーズ遷移時 `tools/list_changed` 通知
-- [ ] MCP ツール呼び出しハンドラ
+- [x] MCP ツール呼び出しハンドラ
   - JSON Schema バリデーション
   - `request_id` 検証
   - Gateway → Engine へルーティング
-- [ ] 再接続ハンドラ (§5.3)
+- [x] 再接続ハンドラ (§5.3)
   - Exponential backoff サポート (初回 1 秒, max 8 秒)
   - 切断後復帰猶予 20 秒
   - `FORFEIT_LOSS` 判定
-- [ ] `DRAINING` メッセージ送信 (§3.7)
-- [ ] 統合テスト: 接続 → ツール実行 → 切断 → 再接続
+- [x] `DRAINING` メッセージ送信 (§3.7)
+- [x] 統合テスト: 接続 → ツール実行 → 切断 → 再接続
 
 ---
 
@@ -283,17 +283,17 @@ graph TD
 
 タスク:
 
-- [ ] `GamePlugin` 実装: `PromptInjectionArena`
+- [x] `GamePlugin` 実装: `PromptInjectionArena`
   - 攻撃側 / 防衛側のロール割り当て
   - 秘密文字列のランダム生成
   - ターン制限 (設定可能)
   - 勝利条件判定 (漏えい検出 / 防衛成功)
-- [ ] MCP ツール定義
+- [x] MCP ツール定義
   - `send_message`: 攻撃側が防衛側に送るプロンプト
   - `respond`: 防衛側の応答
   - `check_secret`: 攻撃側が推測した秘密文字列を検証
-- [ ] ログ出力時の秘密値マスク処理 (§6.1)
-- [ ] ユニットテスト: 全勝利パターン、ターン制限、マスク処理
+- [x] ログ出力時の秘密値マスク処理 (§6.1)
+- [x] ユニットテスト: 全勝利パターン、ターン制限、マスク処理
 
 ---
 
@@ -309,15 +309,15 @@ graph TD
 
 タスク:
 
-- [ ] `tools/cli/` に CLI 実装
+- [x] `tools/cli/` に CLI 実装
   - `moltgame-client connect --token <TOKEN>` コマンド
   - WebSocket 接続 + 自動再接続
   - MCP ツール一覧表示
-- [ ] Python SDK (`moltgame-sdk`) の基礎
+- [x] Python SDK (`moltgame-sdk`) の基礎
   - WebSocket クライアントラッパー
   - ツール呼び出しヘルパー
   - サンプルエージェント (ランダムアクション)
-- [ ] README: エージェント実装ガイド
+- [x] README: エージェント実装ガイド
 
 ---
 
@@ -333,7 +333,7 @@ graph TD
 
 タスク:
 
-- [ ] E2E テストスクリプト
+- [x] E2E テストスクリプト
   1. Firebase Emulators 起動
   2. Gateway + Engine 起動
   3. ユーザー登録 → ログイン
@@ -341,9 +341,9 @@ graph TD
   5. 2 つのエージェント接続
   6. Prompt Injection Arena を最後までプレイ
   7. マッチ状態が `FINISHED` であることを検証
-- [ ] Docker Compose でのローカル統合テスト環境
-- [ ] CI に E2E テストを組み込み
-- [ ] dev 環境への手動デプロイ Runbook を整備し、1 回ドライラン実施 (§14 Phase 0)
+- [x] Docker Compose でのローカル統合テスト環境
+- [x] CI に E2E テストを組み込み
+- [x] dev 環境への手動デプロイ Runbook を整備し、1 回ドライラン実施 (§14 Phase 0)
 
 **✅ Phase 0 マイルストーン: この PR のマージでE2E 接続検証完了**
 
