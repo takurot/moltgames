@@ -19,6 +19,27 @@ export const createServer = async () => {
 
   fastify.post<{ Params: { matchId: string }; Body: { gameId: string; seed: number } }>(
     '/matches/:matchId/start',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['matchId'],
+          additionalProperties: false,
+          properties: {
+            matchId: { type: 'string', minLength: 1 },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['gameId', 'seed'],
+          additionalProperties: false,
+          properties: {
+            gameId: { type: 'string', minLength: 1 },
+            seed: { type: 'integer' },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const { matchId } = request.params;
       const { gameId, seed } = request.body;

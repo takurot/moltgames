@@ -18,18 +18,26 @@ describe('RedisManager', () => {
   });
 
   it('should acquire turn lock', async () => {
-    const locked = await redisManager.acquireTurnLock('match1', 10);
+    const locked = await redisManager.acquireTurnLock('match1', 10, 'owner-1');
     expect(locked).toBe(true);
 
-    const lockedAgain = await redisManager.acquireTurnLock('match1', 10);
+    const lockedAgain = await redisManager.acquireTurnLock('match1', 10, 'owner-2');
     expect(lockedAgain).toBe(false);
   });
 
-  it('should release turn lock', async () => {
-    await redisManager.acquireTurnLock('match1', 10);
-    await redisManager.releaseTurnLock('match1');
+  it('should release turn lock only for owner', async () => {
+    await redisManager.acquireTurnLock('match1', 10, 'owner-1');
 
-    const locked = await redisManager.acquireTurnLock('match1', 10);
+    const releasedByOtherOwner = await redisManager.releaseTurnLock('match1', 'owner-2');
+    expect(releasedByOtherOwner).toBe(false);
+
+    const lockedWhileOwned = await redisManager.acquireTurnLock('match1', 10, 'owner-3');
+    expect(lockedWhileOwned).toBe(false);
+
+    const releasedByOwner = await redisManager.releaseTurnLock('match1', 'owner-1');
+    expect(releasedByOwner).toBe(true);
+
+    const locked = await redisManager.acquireTurnLock('match1', 10, 'owner-3');
     expect(locked).toBe(true);
   });
 

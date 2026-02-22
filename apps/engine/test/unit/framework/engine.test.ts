@@ -5,11 +5,8 @@ import type {
   GamePlugin,
   Action,
   ValidationResult,
-  TerminationResult,
   ApplyActionResult,
 } from '../../../src/framework/types.js';
-import Redis from 'ioredis-mock';
-import type { JsonValue } from '@moltgames/domain';
 
 // Mock RedisManager
 vi.mock('../../../src/state/redis-manager.js', () => {
@@ -28,24 +25,35 @@ vi.mock('../../../src/state/redis-manager.js', () => {
         await this.client.set(`match:${matchId}:state`, JSON.stringify(state));
       }
       async getMatchMeta(matchId: string) {
-        return this.client.hgetall(`match:${matchId}:meta`);
+        const meta = await this.client.hgetall(`match:${matchId}:meta`);
+        if (Object.keys(meta).length === 0) {
+          return null;
+        }
+        return meta;
       }
       async saveMatchMeta(matchId: string, meta: any) {
         await this.client.hset(`match:${matchId}:meta`, meta);
       }
-      async acquireTurnLock(matchId: string, ttlSeconds: number) {
+      async acquireTurnLock(matchId: string, ttlSeconds: number, ownerToken: string) {
         // Simple mock lock: check if key exists
         const key = `match:${matchId}:turn-lock`;
         const exists = await this.client.exists(key);
         if (exists) return false;
-        await this.client.set(key, 'locked');
+        await this.client.set(key, ownerToken);
         return true;
       }
-      async releaseTurnLock(matchId: string) {
-        await this.client.del(`match:${matchId}:turn-lock`);
+      async releaseTurnLock(matchId: string, ownerToken: string) {
+        const key = `match:${matchId}:turn-lock`;
+        const lockOwner = await this.client.get(key);
+        if (lockOwner !== ownerToken) {
+          return false;
+        }
+        await this.client.del(key);
+        return true;
       }
       async checkRequestIdProcessed(matchId: string, requestId: string) {
-        return this.client.exists(`req:${matchId}:${requestId}`);
+        const exists = await this.client.exists(`req:${matchId}:${requestId}`);
+        return exists === 1;
       }
       async markRequestIdProcessed(matchId: string, requestId: string, response: any) {
         await this.client.set(`req:${matchId}:${requestId}`, JSON.stringify(response));
@@ -62,6 +70,7 @@ vi.mock('../../../src/state/redis-manager.js', () => {
 class MockGamePlugin implements GamePlugin<any> {
   gameId = 'test-game';
   ruleVersion = '1.0.0';
+  turnTimeoutSeconds = 30;
 
   initialize(seed: number) {
     return { turn: 1, value: 0 };
@@ -113,8 +122,10 @@ describe('Engine', () => {
         gameId: 'test-game',
         turn: '1',
         retryCount: '0',
+        turnTimeoutSec: '30',
       }),
     );
+    expect(Number(meta?.turnStartedAtMs)).toBeGreaterThan(0);
   });
 
   it('should process a valid action', async () => {
@@ -153,48 +164,36 @@ describe('Engine', () => {
     expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
   });
 
-  it('should retry up to MAX_RETRIES (3 times)', async () => {
+  it('should retry validation error only once per turn', async () => {
     const matchId = 'match-4';
     await engine.startMatch(matchId, 'test-game', 123);
 
-    // 1st retry
-    await engine.processAction(matchId, {
+    const firstResult = await engine.processAction(matchId, {
       tool: 'retryable_error',
       request_id: 'req3-1',
       args: {},
     });
+    expect(firstResult.status).toBe('error');
+    if (firstResult.status === 'error') {
+      expect(firstResult.error.code).toBe('VALIDATION_ERROR');
+      expect(firstResult.error.retryable).toBe(true);
+    }
+
     let meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
 
-    // 2nd retry
-    await engine.processAction(matchId, {
+    const secondResult = await engine.processAction(matchId, {
       tool: 'retryable_error',
       request_id: 'req3-2',
       args: {},
     });
-    meta = await redisManager.getMatchMeta(matchId);
-    expect(meta).toEqual(expect.objectContaining({ retryCount: '2' }));
-
-    // 3rd retry
-    await engine.processAction(matchId, {
-      tool: 'retryable_error',
-      request_id: 'req3-3',
-      args: {},
-    });
-    meta = await redisManager.getMatchMeta(matchId);
-    expect(meta).toEqual(expect.objectContaining({ retryCount: '3' }));
-
-    // 4th attempt (should fail non-retryable)
-    const result = await engine.processAction(matchId, {
-      tool: 'retryable_error',
-      request_id: 'req3-4',
-      args: {},
-    });
-    expect(result.status).toBe('error');
-    if (result.status === 'error') {
-      expect(result.error.code).toBe('VALIDATION_ERROR');
-      expect(result.error.retryable).toBe(false);
+    expect(secondResult.status).toBe('error');
+    if (secondResult.status === 'error') {
+      expect(secondResult.error.code).toBe('VALIDATION_ERROR');
+      expect(secondResult.error.retryable).toBe(false);
     }
+    meta = await redisManager.getMatchMeta(matchId);
+    expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
   });
 
   it('should fail immediately on non-retryable error', async () => {
@@ -218,7 +217,7 @@ describe('Engine', () => {
     await engine.startMatch(matchId, 'test-game', 123);
 
     // Manually acquire lock to simulate concurrency
-    await redisManager.acquireTurnLock(matchId, 10);
+    await redisManager.acquireTurnLock(matchId, 10, 'manual-owner');
 
     const action: Action = { tool: 'move', request_id: 'req5', args: {} };
     const result = await engine.processAction(matchId, action);
@@ -228,6 +227,30 @@ describe('Engine', () => {
       expect(result.error.code).toBe('SERVICE_UNAVAILABLE');
       expect(result.error.message).toContain('lock');
       expect(result.error.retryable).toBe(true);
+    }
+  });
+
+  it('should enforce turn timeout', async () => {
+    const matchId = 'match-7';
+    await engine.startMatch(matchId, 'test-game', 123);
+
+    const meta = await redisManager.getMatchMeta(matchId);
+    expect(meta).not.toBeNull();
+    if (!meta) {
+      throw new Error('missing match meta');
+    }
+    await redisManager.saveMatchMeta(matchId, {
+      ...meta,
+      turnStartedAtMs: (Date.now() - 31_000).toString(),
+    });
+
+    const action: Action = { tool: 'move', request_id: 'req-timeout', args: {} };
+    const result = await engine.processAction(matchId, action);
+
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(result.error.code).toBe('TURN_EXPIRED');
+      expect(result.error.retryable).toBe(false);
     }
   });
 });
