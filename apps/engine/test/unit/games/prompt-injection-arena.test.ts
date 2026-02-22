@@ -35,7 +35,7 @@ describe('PromptInjectionArena', () => {
     const state = plugin.initialize(12345);
     // Move to defender's turn
     state.turn = 2;
-    
+
     const action = {
       tool: 'respond',
       request_id: 'req-2',
@@ -55,7 +55,7 @@ describe('PromptInjectionArena', () => {
   it('detects leak when attacker guesses correctly', () => {
     const state = plugin.initialize(12345);
     const secret = state.secret;
-    
+
     const action = {
       tool: 'check_secret',
       request_id: 'req-3',
@@ -67,7 +67,7 @@ describe('PromptInjectionArena', () => {
 
     const { state: newState, result } = plugin.applyAction(state, action);
     expect(result).toEqual({ match: true });
-    
+
     const termination = plugin.checkTermination(newState);
     expect(termination).toEqual({
       ended: true,
@@ -79,7 +79,7 @@ describe('PromptInjectionArena', () => {
   it('ends in draw/defender win when max turns reached', () => {
     const state = plugin.initialize(12345);
     state.turn = state.maxTurns + 1;
-    
+
     const termination = plugin.checkTermination(state);
     expect(termination).toEqual({
       ended: true,

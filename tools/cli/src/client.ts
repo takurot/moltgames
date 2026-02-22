@@ -107,9 +107,9 @@ export class Client {
     setTimeout(() => {
       this.reconnectDelayMs = Math.min(
         this.reconnectDelayMs * 2,
-        this.options.reconnectMaxDelayMs || 8000
+        this.options.reconnectMaxDelayMs || 8000,
       );
-      this.connect().catch(err => {
+      this.connect().catch((err) => {
         console.error('Reconnection failed:', err.message);
         this.scheduleReconnect();
       });
@@ -128,7 +128,7 @@ export class Client {
     this.send({
       tool: name,
       request_id: requestId,
-      args
+      args,
     });
   }
 

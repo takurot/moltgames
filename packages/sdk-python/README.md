@@ -19,7 +19,7 @@ async def main():
         url="ws://localhost:8080/v1/ws",
         token="YOUR_CONNECT_TOKEN"
     )
-    
+
     # This will handle connection and automatic reconnection
     await client.connect()
 

@@ -20,6 +20,7 @@ terraform apply -var-file=terraform.tfvars
 ## 3. Secret Configuration
 
 Ensure the following secrets are in Secret Manager:
+
 - `connect-token-secret`
 
 ## 4. Manual Deployment to Cloud Run

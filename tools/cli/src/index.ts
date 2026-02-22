@@ -4,10 +4,7 @@ import { Client } from './client.js';
 
 const program = new Command();
 
-program
-  .name('moltgame-client')
-  .description('Moltgame Agent CLI Client')
-  .version('0.1.0');
+program.name('moltgame-client').description('Moltgame Agent CLI Client').version('0.1.0');
 
 program
   .command('connect')
@@ -23,7 +20,7 @@ program
     try {
       await client.connect();
       console.log('Client connected and running. Press Ctrl+C to disconnect.');
-      
+
       // Keep alive
       process.on('SIGINT', () => {
         console.log('Disconnecting...');

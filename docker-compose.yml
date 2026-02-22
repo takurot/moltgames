@@ -2,7 +2,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - '6379:6379'
 
   engine:
     build:
@@ -12,7 +12,7 @@ services:
       - PORT=8081
       - REDIS_URL=redis://redis:6379
     ports:
-      - "8081:8081"
+      - '8081:8081'
     depends_on:
       - redis
 
@@ -27,7 +27,7 @@ services:
       - CONNECT_TOKEN_SECRET=dev-secret
       - MOCK_AUTH=true
     ports:
-      - "8080:8080"
+      - '8080:8080'
     depends_on:
       - engine
       - redis

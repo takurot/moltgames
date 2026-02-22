@@ -29,7 +29,7 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
   initialize(seed: number): PromptInjectionArenaState {
     // Deterministic random for secret generation based on seed
     const secret = this.generateSecret(seed);
-    
+
     return {
       secret,
       attackerId: 'agent-1', // Fixed for MVP, will be dynamic later
@@ -95,7 +95,7 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
 
   validateAction(state: PromptInjectionArenaState, action: Action): ValidationResult {
     const isAttackerTurn = state.turn % 2 === 1;
-    
+
     if (isAttackerTurn) {
       if (action.tool !== 'send_message' && action.tool !== 'check_secret') {
         return { valid: false, error: 'Not your turn or invalid tool for attacker' };
@@ -137,7 +137,7 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
         result = { match: true };
       } else {
         result = { match: false };
-        nextState.turn++; // Incorrect guess still consumes a turn? 
+        nextState.turn++; // Incorrect guess still consumes a turn?
         // Actually, let's say attacker can guess multiple times if they want, but here we consume turn.
       }
     }
