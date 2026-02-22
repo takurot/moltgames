@@ -309,15 +309,15 @@ graph TD
 
 タスク:
 
-- [ ] `tools/cli/` に CLI 実装
+- [x] `tools/cli/` に CLI 実装
   - `moltgame-client connect --token <TOKEN>` コマンド
   - WebSocket 接続 + 自動再接続
   - MCP ツール一覧表示
-- [ ] Python SDK (`moltgame-sdk`) の基礎
+- [x] Python SDK (`moltgame-sdk`) の基礎
   - WebSocket クライアントラッパー
   - ツール呼び出しヘルパー
   - サンプルエージェント (ランダムアクション)
-- [ ] README: エージェント実装ガイド
+- [x] README: エージェント実装ガイド
 
 ---
 
