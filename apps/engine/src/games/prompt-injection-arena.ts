@@ -137,8 +137,12 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
         result = { match: true };
       } else {
         result = { match: false };
-        nextState.turn++; // Incorrect guess still consumes a turn?
-        // Actually, let's say attacker can guess multiple times if they want, but here we consume turn.
+        // Consume turn on failed guess to prevent infinite guessing in a single turn
+        nextState.turn++;
+        nextState.history.push({
+          role: 'attacker',
+          content: '[Attempted to guess the secret]',
+        });
       }
     }
 
@@ -185,8 +189,8 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
 
   private generateSecret(seed: number): string {
     const words = ['apple', 'banana', 'cherry', 'date', 'elderberry', 'fig', 'grape'];
-    // Very simple seeded random
-    const index = Math.abs(Math.floor(Math.sin(seed) * words.length));
+    // Very simple seeded random, ensured to be within words array bounds
+    const index = Math.floor(Math.abs(Math.sin(seed)) * words.length) % words.length;
     return `SECRET-${words[index]}-${seed}`;
   }
 }
