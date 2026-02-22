@@ -85,6 +85,34 @@ export const createServer = async () => {
     },
   );
 
+  fastify.get<{ Params: { matchId: string } }>(
+    '/matches/:matchId/tools',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['matchId'],
+          additionalProperties: false,
+          properties: {
+            matchId: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { matchId } = request.params;
+
+      try {
+        const tools = await engine.getAvailableTools(matchId);
+        return { status: 'ok', tools };
+      } catch (error: unknown) {
+        request.log.error(error);
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        reply.status(500).send({ status: 'error', message });
+      }
+    },
+  );
+
   fastify.get('/healthz', async () => {
     return { status: 'ok' };
   });
