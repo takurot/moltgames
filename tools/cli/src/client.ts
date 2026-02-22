@@ -72,22 +72,22 @@ export class Client {
     const msg = message as any;
     switch (msg.type) {
       case 'session/ready':
-        this.sessionId = msg.session_id;
+        this.sessionId = msg.session_id as string;
         console.log(`Session ready: ${this.sessionId}`);
         break;
       case 'session/resumed':
         console.log('Session resumed');
         break;
       case 'tools/list':
-        this.tools = msg.tools;
+        this.tools = msg.tools as MCPToolDefinition[];
         console.log('Received tools:', this.tools.map((t) => t.name).join(', '));
         break;
       case 'tools/list_changed':
-        this.tools = msg.tools;
+        this.tools = msg.tools as MCPToolDefinition[];
         console.log('Tools updated:', this.tools.map((t) => t.name).join(', '));
         break;
       case 'match/ended':
-        console.log('Match ended:', msg.reason);
+        console.log('Match ended:', msg.reason as string);
         this.close();
         break;
       case 'DRAINING':
