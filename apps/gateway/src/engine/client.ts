@@ -56,13 +56,18 @@ export class EngineClient {
 
   async #executeRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.#engineUrl}${path}`;
-    const response = await fetch(url, {
+    const init: RequestInit = {
       method,
       headers: {
         'Content-Type': 'application/json',
       },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    };
+
+    if (body !== undefined) {
+      init.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, init);
 
     if (!response.ok) {
       throw new Error(`Engine error: ${response.status}`);
