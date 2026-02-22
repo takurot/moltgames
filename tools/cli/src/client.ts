@@ -1,4 +1,4 @@
-import WebSocket from 'ws';
+import WebSocket, { type RawData } from 'ws';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
 
 export interface ClientOptions {
@@ -68,7 +68,8 @@ export class Client {
     if (typeof message !== 'object' || message === null) {
       return;
     }
-    const msg = message as Record<string, unknown>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const msg = message as any;
     switch (msg.type) {
       case 'session/ready':
         this.sessionId = msg.session_id as string;
