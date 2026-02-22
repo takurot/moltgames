@@ -31,7 +31,7 @@ export const createServer = async () => {
         const message = error instanceof Error ? error.message : 'Unknown error';
         reply.status(500).send({ status: 'error', message });
       }
-    }
+    },
   );
 
   fastify.post<{ Params: { matchId: string }; Body: Action }>(
@@ -61,16 +61,16 @@ export const createServer = async () => {
         const message = error instanceof Error ? error.message : 'Unknown error';
         reply.status(500).send({ status: 'error', message });
       }
-    }
+    },
   );
 
   fastify.get('/healthz', async () => {
-      return { status: 'ok' };
+    return { status: 'ok' };
   });
 
   const close = async () => {
-      await redisManager.close();
-      await fastify.close();
+    await redisManager.close();
+    await fastify.close();
   };
 
   return { fastify, close, engine };

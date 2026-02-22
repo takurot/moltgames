@@ -158,22 +158,38 @@ describe('Engine', () => {
     await engine.startMatch(matchId, 'test-game', 123);
 
     // 1st retry
-    await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-1', args: {} });
+    await engine.processAction(matchId, {
+      tool: 'retryable_error',
+      request_id: 'req3-1',
+      args: {},
+    });
     let meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
 
     // 2nd retry
-    await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-2', args: {} });
+    await engine.processAction(matchId, {
+      tool: 'retryable_error',
+      request_id: 'req3-2',
+      args: {},
+    });
     meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '2' }));
 
     // 3rd retry
-    await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-3', args: {} });
+    await engine.processAction(matchId, {
+      tool: 'retryable_error',
+      request_id: 'req3-3',
+      args: {},
+    });
     meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ retryCount: '3' }));
 
     // 4th attempt (should fail non-retryable)
-    const result = await engine.processAction(matchId, { tool: 'retryable_error', request_id: 'req3-4', args: {} });
+    const result = await engine.processAction(matchId, {
+      tool: 'retryable_error',
+      request_id: 'req3-4',
+      args: {},
+    });
     expect(result.status).toBe('error');
     if (result.status === 'error') {
       expect(result.error.code).toBe('VALIDATION_ERROR');

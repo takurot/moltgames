@@ -31,10 +31,13 @@ describe('Engine', () => {
     await engine.startMatch('match1', 'test-game', 123);
 
     expect(redisManager.saveMatchState).toHaveBeenCalledWith('match1', { turn: 0 });
-    expect(redisManager.saveMatchMeta).toHaveBeenCalledWith('match1', expect.objectContaining({
-      gameId: 'test-game',
-      ruleVersion: '1.0.0'
-    }));
+    expect(redisManager.saveMatchMeta).toHaveBeenCalledWith(
+      'match1',
+      expect.objectContaining({
+        gameId: 'test-game',
+        ruleVersion: '1.0.0',
+      }),
+    );
   });
 
   it('should handle idempotency in processAction', async () => {
@@ -56,7 +59,7 @@ describe('Engine', () => {
   });
 
   it('should process new action and save for idempotency', async () => {
-     // Setup mocks
+    // Setup mocks
     (redisManager.acquireTurnLock as any).mockResolvedValue(true);
     (redisManager.getMatchMeta as any).mockResolvedValue({ gameId: 'test-game' });
     (redisManager.getMatchState as any).mockResolvedValue({ turn: 0 });
@@ -68,12 +71,20 @@ describe('Engine', () => {
     expect(result).toEqual({ status: 'ok', result: { success: true } });
     expect(mockPlugin.applyAction).toHaveBeenCalled();
     // Should save processed request
-    expect(redisManager.markRequestIdProcessed).toHaveBeenCalledWith('match1', 'req2', expect.any(Object));
+    expect(redisManager.markRequestIdProcessed).toHaveBeenCalledWith(
+      'match1',
+      'req2',
+      expect.any(Object),
+    );
   });
 
   it('should handle termination', async () => {
     // Mock termination
-    (mockPlugin.checkTermination as any).mockReturnValue({ ended: true, winner: 'agent1', reason: 'win' });
+    (mockPlugin.checkTermination as any).mockReturnValue({
+      ended: true,
+      winner: 'agent1',
+      reason: 'win',
+    });
 
     (redisManager.acquireTurnLock as any).mockResolvedValue(true);
     (redisManager.getMatchMeta as any).mockResolvedValue({ gameId: 'test-game' });
@@ -84,9 +95,9 @@ describe('Engine', () => {
     const result = await engine.processAction('match1', action);
 
     expect(result).toEqual({
-        status: 'ok',
-        result: { success: true },
-        termination: { ended: true, winner: 'agent1', reason: 'win' }
+      status: 'ok',
+      result: { success: true },
+      termination: { ended: true, winner: 'agent1', reason: 'win' },
     });
   });
 });
