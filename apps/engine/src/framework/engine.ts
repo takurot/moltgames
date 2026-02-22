@@ -44,7 +44,12 @@ export class Engine {
     if (isProcessed) {
       const cached = await this.redis.getProcessedResponse(matchId, action.request_id);
       if (cached) {
-        return cached as any;
+        // We trust the Redis cache to contain the valid response structure
+        return cached as {
+          status: 'ok';
+          result: JsonValue;
+          termination?: TerminationResult;
+        };
       }
     }
 

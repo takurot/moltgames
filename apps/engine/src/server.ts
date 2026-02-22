@@ -26,9 +26,10 @@ export const createServer = async () => {
       try {
         await engine.startMatch(matchId, gameId, seed);
         return { status: 'ok' };
-      } catch (error: any) {
+      } catch (error: unknown) {
         request.log.error(error);
-        reply.status(500).send({ status: 'error', message: error.message });
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        reply.status(500).send({ status: 'error', message });
       }
     }
   );
@@ -55,9 +56,10 @@ export const createServer = async () => {
       try {
         const result = await engine.processAction(matchId, action);
         return result;
-      } catch (error: any) {
+      } catch (error: unknown) {
         request.log.error(error);
-        reply.status(500).send({ status: 'error', message: error.message });
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        reply.status(500).send({ status: 'error', message });
       }
     }
   );
