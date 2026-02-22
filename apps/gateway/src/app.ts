@@ -107,9 +107,19 @@ const normalizeOrigins = (origins: string[]): string[] =>
   origins.map((origin) => origin.trim()).filter((origin) => origin.length > 0);
 
 const isOriginAllowed = (origin: string | undefined, allowedOrigins: string[]): boolean => {
-  if (!origin || /localhost|127\.0\.0\.1/.test(origin)) {
+  if (!origin) {
     return true;
   }
+  
+  try {
+    const url = new URL(origin);
+    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
   return allowedOrigins.includes(origin);
 };
 
