@@ -35,4 +35,5 @@ export interface GamePlugin<S = unknown> {
   validateAction(state: S, action: Action): ValidationResult;
   applyAction(state: S, action: Action): ApplyActionResult<S>;
   checkTermination(state: S): TerminationResult | null;
+  redactState?(state: S): S;
 }

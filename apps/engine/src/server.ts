@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { Engine } from './framework/engine.js';
 import { RedisManager } from './state/redis-manager.js';
 import type { Action } from './framework/types.js';
+import { PromptInjectionArena } from './games/prompt-injection-arena.js';
 
 export const createServer = async () => {
   const fastify = Fastify({
@@ -15,7 +16,8 @@ export const createServer = async () => {
   const redisManager = new RedisManager(redisUrl);
   const engine = new Engine(redisManager);
 
-  // TODO: Register game plugins here (PR-08, 09, 10)
+  // Register game plugins
+  engine.registerPlugin(new PromptInjectionArena());
 
   fastify.post<{ Params: { matchId: string }; Body: { gameId: string; seed: number } }>(
     '/matches/:matchId/start',
