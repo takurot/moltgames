@@ -1,0 +1,528 @@
+diff --git a/apps/engine/Dockerfile b/apps/engine/Dockerfile
+new file mode 100644
+index 0000000..da09ef7
+--- /dev/null
++++ b/apps/engine/Dockerfile
+@@ -0,0 +1,40 @@
++FROM node:22-alpine AS base
++
++FROM base AS builder
++RUN apk add --no-cache libc6-compat
++RUN apk update
++WORKDIR /app
++RUN npm install -g turbo pnpm
++COPY . .
++RUN turbo prune --scope=@moltgames/engine --docker
++
++FROM base AS installer
++RUN apk add --no-cache libc6-compat
++RUN apk update
++WORKDIR /app
++RUN npm install -g pnpm
++
++# First install dependencies (as they change less often)
++COPY .gitignore .gitignore
++COPY --from=builder /app/out/json/ .
++COPY --from=builder /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
++RUN pnpm install --frozen-lockfile
++
++# Build the project and its dependencies
++COPY --from=builder /app/out/full/ .
++COPY turbo.json turbo.json
++
++# Build only the engine app
++RUN pnpm turbo run build --filter=@moltgames/engine...
++
++FROM base AS runner
++WORKDIR /app
++
++# Don't run production as root
++RUN addgroup --system --gid 1001 nodejs
++RUN adduser --system --uid 1001 nodejs
++USER nodejs
++
++COPY --from=installer --chown=nodejs:nodejs /app .
++
++CMD ["node", "apps/engine/dist/index.js"]
+diff --git a/apps/engine/cloudbuild.yaml b/apps/engine/cloudbuild.yaml
+new file mode 100644
+index 0000000..532ca37
+--- /dev/null
++++ b/apps/engine/cloudbuild.yaml
+@@ -0,0 +1,13 @@
++steps:
++  # Build the container image
++  - name: 'gcr.io/kaniko-project/executor:latest'
++    args:
++      - --destination=gcr.io/$PROJECT_ID/moltgame-engine:$COMMIT_SHA
++      - --destination=gcr.io/$PROJECT_ID/moltgame-engine:latest
++      - --cache=true
++      - --cache-ttl=24h
++      - --dockerfile=apps/engine/Dockerfile
++      - --context=dir://.
++timeout: '1200s'
++options:
++  machineType: 'N1_HIGHCPU_8'
+diff --git a/apps/engine/package.json b/apps/engine/package.json
+index d6d93c8..a4d5a9b 100644
+--- a/apps/engine/package.json
++++ b/apps/engine/package.json
+@@ -7,7 +7,9 @@
+   "types": "dist/index.d.ts",
+   "dependencies": {
+     "@moltgames/domain": "workspace:*",
+-    "@moltgames/mcp-protocol": "workspace:*"
++    "@moltgames/mcp-protocol": "workspace:*",
++    "ioredis": "^5.9.3",
++    "pino": "^9.14.0"
+   },
+   "scripts": {
+     "build": "tsc -p tsconfig.json",
+@@ -16,5 +18,9 @@
+     "test:unit": "vitest run --passWithNoTests test/unit",
+     "test:integration": "vitest run --passWithNoTests test/integration",
+     "test:e2e": "vitest run --passWithNoTests test/e2e"
++  },
++  "devDependencies": {
++    "ioredis-mock": "^8.13.1",
++    "pino-pretty": "^13.1.3"
+   }
+ }
+diff --git a/apps/engine/src/framework/engine.ts b/apps/engine/src/framework/engine.ts
+new file mode 100644
+index 0000000..680bd3e
+--- /dev/null
++++ b/apps/engine/src/framework/engine.ts
+@@ -0,0 +1,137 @@
++import type { GamePlugin, Action } from './types.js';
++import type { RedisManager } from '../state/redis-manager.js';
++import type { JsonValue, CommonErrorCode } from '@moltgames/domain';
++
++export class Engine {
++  private plugins = new Map<string, GamePlugin>();
++
++  constructor(private redis: RedisManager) {}
++
++  registerPlugin(plugin: GamePlugin) {
++    this.plugins.set(plugin.gameId, plugin);
++  }
++
++  async startMatch(matchId: string, gameId: string, seed: number): Promise<void> {
++    const plugin = this.plugins.get(gameId);
++    if (!plugin) {
++      throw new Error(`Game plugin not found: ${gameId}`);
++    }
++
++    const state = plugin.initialize(seed);
++    const turn = plugin.getTurn(state);
++
++    await this.redis.saveMatchState(matchId, state);
++    await this.redis.saveMatchMeta(matchId, {
++      gameId,
++      turn: turn.toString(),
++      retryCount: '0',
++    });
++  }
++
++  async processAction(
++    matchId: string,
++    action: Action,
++  ): Promise<
++    | { status: 'ok'; result: JsonValue }
++    | { status: 'error'; error: { code: CommonErrorCode; message: string; retryable: boolean } }
++  > {
++    // 1. Load Meta
++    const meta = await this.redis.getMatchMeta(matchId);
++    if (!meta) {
++      return {
++        status: 'error',
++        error: {
++          code: 'INVALID_REQUEST',
++          message: `Match not found: ${matchId}`,
++          retryable: true, // Maybe transient?
++        },
++      };
++    }
++
++    const gameId = meta.gameId;
++    if (!gameId) {
++      return {
++        status: 'error',
++        error: {
++          code: 'SERVICE_UNAVAILABLE',
++          message: `Match meta missing gameId: ${matchId}`,
++          retryable: false,
++        },
++      };
++    }
++
++    const plugin = this.plugins.get(gameId);
++    if (!plugin) {
++      return {
++        status: 'error',
++        error: {
++          code: 'SERVICE_UNAVAILABLE', // Or INTERNAL_ERROR but that's not in CommonErrorCode
++          message: `Game plugin not found: ${gameId}`,
++          retryable: false,
++        },
++      };
++    }
++
++    // 2. Load State
++    const state = await this.redis.getMatchState(matchId);
++    if (!state) {
++      return {
++        status: 'error',
++        error: {
++          code: 'SERVICE_UNAVAILABLE',
++          message: `Match state not found: ${matchId}`,
++          retryable: false,
++        },
++      };
++    }
++
++    // 3. Validate
++    const validation = plugin.validateAction(state, action);
++    if (!validation.valid) {
++      const currentRetryCount = parseInt(meta.retryCount || '0', 10);
++      const isRetryable = validation.retryable !== false && currentRetryCount < 1;
++
++      if (isRetryable) {
++        // Increment retry count
++        await this.redis.saveMatchMeta(matchId, {
++          ...meta,
++          retryCount: (currentRetryCount + 1).toString(),
++        });
++      }
++
++      return {
++        status: 'error',
++        error: {
++          code: 'VALIDATION_ERROR',
++          message: validation.error || 'Invalid action',
++          retryable: isRetryable,
++        },
++      };
++    }
++
++    // 4. Apply Action
++    const { state: newState, result } = plugin.applyAction(state, action);
++    const newTurn = plugin.getTurn(newState);
++
++    // 5. Check Termination (TODO: Handle termination result)
++    // const termination = plugin.checkTermination(newState);
++
++    // 6. Save State
++    await this.redis.saveMatchState(matchId, newState);
++
++    // Update meta
++    const newMeta: Record<string, string | number> = {
++      ...meta,
++      turn: newTurn.toString(),
++    };
++    if (newTurn !== parseInt(meta.turn || '0', 10)) {
++      newMeta.retryCount = '0';
++    }
++    await this.redis.saveMatchMeta(matchId, newMeta);
++
++    return {
++      status: 'ok',
++      result,
++    };
++  }
++}
+diff --git a/apps/engine/src/framework/types.ts b/apps/engine/src/framework/types.ts
+new file mode 100644
+index 0000000..d5bf2e9
+--- /dev/null
++++ b/apps/engine/src/framework/types.ts
+@@ -0,0 +1,35 @@
++import type { JsonObject, JsonValue } from '@moltgames/domain';
++import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
++
++export interface Action {
++  tool: string;
++  args: JsonObject;
++}
++
++export interface ValidationResult {
++  valid: boolean;
++  error?: string;
++  retryable?: boolean;
++}
++
++export interface ApplyActionResult<S> {
++  state: S;
++  result: JsonValue;
++}
++
++export interface TerminationResult {
++  ended: boolean;
++  winner?: string; // agentId or null for draw
++  reason?: string;
++}
++
++export interface GamePlugin<S = unknown> {
++  gameId: string;
++  ruleVersion: string;
++  initialize(seed: number): S;
++  getTurn(state: S): number;
++  getAvailableTools(state: S, phase: string): MCPToolDefinition[];
++  validateAction(state: S, action: Action): ValidationResult;
++  applyAction(state: S, action: Action): ApplyActionResult<S>;
++  checkTermination(state: S): TerminationResult | null;
++}
+diff --git a/apps/engine/src/state/redis-manager.ts b/apps/engine/src/state/redis-manager.ts
+new file mode 100644
+index 0000000..dda236c
+--- /dev/null
++++ b/apps/engine/src/state/redis-manager.ts
+@@ -0,0 +1,49 @@
++import Redis from 'ioredis';
++
++export class RedisManager {
++  private client: Redis;
++
++  constructor(redisUrl: string) {
++    this.client = new Redis(redisUrl);
++  }
++
++  async getMatchState<S>(matchId: string): Promise<S | null> {
++    const data = await this.client.get(`match:${matchId}:state`);
++    if (!data) return null;
++    return JSON.parse(data) as S;
++  }
++
++  async saveMatchState<S>(matchId: string, state: S, ttlSeconds: number = 600): Promise<void> {
++    await this.client.setex(`match:${matchId}:state`, ttlSeconds, JSON.stringify(state));
++  }
++
++  async getMatchMeta(matchId: string): Promise<Record<string, string> | null> {
++    const data = await this.client.hgetall(`match:${matchId}:meta`);
++    if (!data || Object.keys(data).length === 0) return null;
++    return data;
++  }
++
++  async saveMatchMeta(
++    matchId: string,
++    meta: Record<string, string | number>,
++    ttlSeconds: number = 600,
++  ): Promise<void> {
++    const key = `match:${matchId}:meta`;
++    await this.client.hset(key, meta);
++    await this.client.expire(key, ttlSeconds);
++  }
++
++  async acquireTurnLock(matchId: string, ttlSeconds: number): Promise<boolean> {
++    const key = `match:${matchId}:turn-lock`;
++    const result = await this.client.set(key, 'locked', 'EX', ttlSeconds, 'NX');
++    return result === 'OK';
++  }
++
++  async releaseTurnLock(matchId: string): Promise<void> {
++    await this.client.del(`match:${matchId}:turn-lock`);
++  }
++
++  async close(): Promise<void> {
++    await this.client.quit();
++  }
++}
+diff --git a/apps/engine/test/unit/framework/engine.test.ts b/apps/engine/test/unit/framework/engine.test.ts
+new file mode 100644
+index 0000000..7d1dd45
+--- /dev/null
++++ b/apps/engine/test/unit/framework/engine.test.ts
+@@ -0,0 +1,169 @@
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { Engine } from '../../../src/framework/engine.js';
++import { RedisManager } from '../../../src/state/redis-manager.js';
++import type {
++  GamePlugin,
++  Action,
++  ValidationResult,
++  TerminationResult,
++  ApplyActionResult,
++} from '../../../src/framework/types.js';
++import Redis from 'ioredis-mock';
++import type { JsonValue } from '@moltgames/domain';
++
++// Mock RedisManager
++vi.mock('../../../src/state/redis-manager.js', () => {
++  const RedisMock = require('ioredis-mock').default;
++  return {
++    RedisManager: class {
++      client: any;
++      constructor(url: string) {
++        this.client = new RedisMock();
++      }
++      async getMatchState(matchId: string) {
++        const data = await this.client.get(`match:${matchId}:state`);
++        return data ? JSON.parse(data) : null;
++      }
++      async saveMatchState(matchId: string, state: any) {
++        await this.client.set(`match:${matchId}:state`, JSON.stringify(state));
++      }
++      async getMatchMeta(matchId: string) {
++        return this.client.hgetall(`match:${matchId}:meta`);
++      }
++      async saveMatchMeta(matchId: string, meta: any) {
++        await this.client.hset(`match:${matchId}:meta`, meta);
++      }
++    },
++  };
++});
++
++// Mock Game Plugin
++class MockGamePlugin implements GamePlugin<any> {
++  gameId = 'test-game';
++  ruleVersion = '1.0.0';
++
++  initialize(seed: number) {
++    return { turn: 1, value: 0 };
++  }
++  getTurn(state: any) {
++    return state.turn;
++  }
++  getAvailableTools() {
++    return [];
++  }
++  validateAction(state: any, action: Action): ValidationResult {
++    if (action.tool === 'invalid') {
++      return { valid: false, error: 'Invalid tool', retryable: false };
++    }
++    if (action.tool === 'retryable_error') {
++      return { valid: false, error: 'Retry me', retryable: true };
++    }
++    return { valid: true };
++  }
++  applyAction(state: any, action: Action): ApplyActionResult<any> {
++    const newState = { ...state, value: state.value + 1, turn: state.turn + 1 };
++    return { state: newState, result: { success: true } };
++  }
++  checkTermination() {
++    return null;
++  }
++}
++
++describe('Engine', () => {
++  let engine: Engine;
++  let redisManager: RedisManager;
++
++  beforeEach(() => {
++    redisManager = new RedisManager('redis://localhost:6379');
++    engine = new Engine(redisManager);
++    engine.registerPlugin(new MockGamePlugin());
++  });
++
++  it('should start a match', async () => {
++    const matchId = 'match-1';
++    await engine.startMatch(matchId, 'test-game', 123);
++
++    const state = await redisManager.getMatchState(matchId);
++    expect(state).toEqual({ turn: 1, value: 0 });
++
++    const meta = await redisManager.getMatchMeta(matchId);
++    expect(meta).toEqual(
++      expect.objectContaining({
++        gameId: 'test-game',
++        turn: '1',
++        retryCount: '0',
++      }),
++    );
++  });
++
++  it('should process a valid action', async () => {
++    const matchId = 'match-2';
++    await engine.startMatch(matchId, 'test-game', 123);
++
++    const action: Action = { tool: 'move', args: {} };
++    const result = await engine.processAction(matchId, action);
++
++    expect(result.status).toBe('ok');
++    if (result.status === 'ok') {
++      expect(result.result).toEqual({ success: true });
++    }
++
++    const state = await redisManager.getMatchState(matchId);
++    expect(state).toEqual({ turn: 2, value: 1 });
++
++    const meta = await redisManager.getMatchMeta(matchId);
++    expect(meta).toEqual(expect.objectContaining({ turn: '2', retryCount: '0' }));
++  });
++
++  it('should handle retryable validation error', async () => {
++    const matchId = 'match-3';
++    await engine.startMatch(matchId, 'test-game', 123);
++
++    const action: Action = { tool: 'retryable_error', args: {} };
++    const result = await engine.processAction(matchId, action);
++
++    expect(result.status).toBe('error');
++    if (result.status === 'error') {
++      expect(result.error.code).toBe('VALIDATION_ERROR');
++      expect(result.error.retryable).toBe(true);
++    }
++
++    const meta = await redisManager.getMatchMeta(matchId);
++    expect(meta).toEqual(expect.objectContaining({ retryCount: '1' }));
++  });
++
++  it('should fail on second retryable error', async () => {
++    const matchId = 'match-4';
++    await engine.startMatch(matchId, 'test-game', 123);
++
++    const action: Action = { tool: 'retryable_error', args: {} };
++
++    // First attempt
++    await engine.processAction(matchId, action);
++
++    // Second attempt
++    const result = await engine.processAction(matchId, action);
++
++    expect(result.status).toBe('error');
++    if (result.status === 'error') {
++      expect(result.error.code).toBe('VALIDATION_ERROR');
++      expect(result.error.retryable).toBe(false);
++    }
++  });
++
++  it('should fail immediately on non-retryable error', async () => {
++    const matchId = 'match-5';
++    await engine.startMatch(matchId, 'test-game', 123);
++
++    const action: Action = { tool: 'invalid', args: {} };
++    const result = await engine.processAction(matchId, action);
++
++    expect(result.status).toBe('error');
++    if (result.status === 'error') {
++      expect(result.error.retryable).toBe(false);
++    }
++
++    const meta = await redisManager.getMatchMeta(matchId);
++    expect(meta).toEqual(expect.objectContaining({ retryCount: '0' }));
++  });
++});
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 6c57b8c..8dd2e61 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -50,6 +50,19 @@ importers:
+       '@moltgames/mcp-protocol':
+         specifier: workspace:*
+         version: link:../../packages/mcp-protocol
++      ioredis:
++        specifier: ^5.9.3
++        version: 5.9.3
++      pino:
++        specifier: ^9.14.0
++        version: 9.14.0
++    devDependencies:
++      ioredis-mock:
++        specifier: ^8.13.1
++        version: 8.13.1(@types/ioredis-mock@8.2.6(ioredis@5.9.3))(ioredis@5.9.3)
++      pino-pretty:
++        specifier: ^13.1.3
++        version: 13.1.3
+ 
+   apps/gateway:
+     dependencies:

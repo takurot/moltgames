@@ -11,7 +11,14 @@ const mockPlugin: GamePlugin<{ turn: number }> = {
   initialize: () => ({ turn: 1 }),
   getTurn: (state) => state.turn,
   consumeTurn: (state) => ({ ...state, turn: state.turn + 1 }),
-  getAvailableTools: () => [],
+  getAvailableTools: (state, agentId, phase) => [
+    {
+      name: 'test_tool',
+      description: 'Test tool',
+      version: '1.0.0',
+      inputSchema: { type: 'object' },
+    },
+  ],
   validateAction: () => ({ valid: true }),
   applyAction: (state, _action: Action) => ({ state, result: { ok: true } }),
   checkTermination: () => null,
@@ -61,5 +68,33 @@ describe('Engine server /matches/:matchId/start', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'ok' });
+  });
+
+  it('returns available tools for an active match', async () => {
+    const startResponse = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-2/start',
+      payload: { gameId: 'test-game', seed: 1 },
+    });
+    expect(startResponse.statusCode).toBe(200);
+
+    const toolsResponse = await fastify.inject({
+      method: 'GET',
+      url: '/matches/match-2/tools',
+      query: { agentId: 'agent-1' },
+    });
+
+    expect(toolsResponse.statusCode).toBe(200);
+    expect(toolsResponse.json()).toEqual({
+      status: 'ok',
+      tools: [
+        {
+          name: 'test_tool',
+          description: 'Test tool',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ],
+    });
   });
 });

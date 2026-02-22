@@ -35,10 +35,17 @@ export interface ToolCallRequest {
   args: JsonObject;
 }
 
+export interface TerminationResult {
+  ended: boolean;
+  winner?: string;
+  reason?: string;
+}
+
 export interface ToolCallSuccessResponse {
   request_id: string;
   status: 'ok';
   result: JsonValue;
+  termination?: TerminationResult;
 }
 
 export interface ToolCallErrorPayload {
@@ -128,13 +135,32 @@ const isToolCallErrorPayload = (value: unknown): value is ToolCallErrorPayload =
   );
 };
 
+const isTerminationResult = (value: unknown): value is TerminationResult => {
+  if (!isRecord(value) || typeof value.ended !== 'boolean') {
+    return false;
+  }
+  if ('winner' in value && value.winner !== undefined && typeof value.winner !== 'string') {
+    return false;
+  }
+  if ('reason' in value && value.reason !== undefined && typeof value.reason !== 'string') {
+    return false;
+  }
+  return true;
+};
+
 export const isToolCallResponse = (value: unknown): value is ToolCallResponse => {
   if (!isRecord(value) || !isNonEmptyString(value.request_id)) {
     return false;
   }
 
   if (value.status === 'ok') {
-    return isJsonValue(value.result);
+    if (!isJsonValue(value.result)) {
+      return false;
+    }
+    if ('termination' in value && value.termination !== undefined) {
+      return isTerminationResult(value.termination);
+    }
+    return true;
   }
 
   if (value.status === 'error') {
