@@ -5,6 +5,7 @@ Language-specific bugs and issues to watch for during code review.
 ## Universal Issues
 
 ### Logic Errors
+
 - [ ] Off-by-one errors in loops and array access
 - [ ] Incorrect boolean logic (De Morgan's law violations)
 - [ ] Missing null/undefined checks
@@ -14,6 +15,7 @@ Language-specific bugs and issues to watch for during code review.
 - [ ] Floating point comparison issues
 
 ### Resource Management
+
 - [ ] Memory leaks (unclosed connections, listeners)
 - [ ] File handles not closed
 - [ ] Database connections not released
@@ -21,6 +23,7 @@ Language-specific bugs and issues to watch for during code review.
 - [ ] Timers/intervals not cleared
 
 ### Error Handling
+
 - [ ] Swallowed exceptions (empty catch blocks)
 - [ ] Generic exception handling hiding specific errors
 - [ ] Missing error propagation
@@ -30,26 +33,34 @@ Language-specific bugs and issues to watch for during code review.
 ## TypeScript/JavaScript
 
 ### Type Issues
+
 ```typescript
 // ❌ Using any defeats type safety
-function process(data: any) { return data.value; }
+function process(data: any) {
+  return data.value;
+}
 
 // ✅ Use proper types
-interface Data { value: string; }
-function process(data: Data) { return data.value; }
+interface Data {
+  value: string;
+}
+function process(data: Data) {
+  return data.value;
+}
 ```
 
 ### Async/Await Pitfalls
+
 ```typescript
 // ❌ Missing await
 async function fetch() {
-  const data = fetchData();  // Missing await!
+  const data = fetchData(); // Missing await!
   return data.json();
 }
 
 // ❌ Unhandled promise rejection
 async function risky() {
-  const result = await fetchData();  // No try-catch
+  const result = await fetchData(); // No try-catch
   return result;
 }
 
@@ -68,11 +79,12 @@ async function safe() {
 ### React Specific
 
 #### Hooks 规则违反
+
 ```tsx
 // ❌ 条件调用 Hooks — 违反 Hooks 规则
 function BadComponent({ show }) {
   if (show) {
-    const [value, setValue] = useState(0);  // Error!
+    const [value, setValue] = useState(0); // Error!
   }
   return <div>...</div>;
 }
@@ -86,36 +98,35 @@ function GoodComponent({ show }) {
 
 // ❌ 循环中调用 Hooks
 function BadLoop({ items }) {
-  items.forEach(item => {
-    const [selected, setSelected] = useState(false);  // Error!
+  items.forEach((item) => {
+    const [selected, setSelected] = useState(false); // Error!
   });
 }
 
 // ✅ 将状态提升或使用不同的数据结构
 function GoodLoop({ items }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  return items.map(item => (
-    <Item key={item.id} selected={selectedIds.has(item.id)} />
-  ));
+  return items.map((item) => <Item key={item.id} selected={selectedIds.has(item.id)} />);
 }
 ```
 
 #### useEffect 常见错误
+
 ```tsx
 // ❌ 依赖数组不完整 — stale closure
 function StaleClosureExample({ userId, onSuccess }) {
   const [data, setData] = useState(null);
   useEffect(() => {
-    fetchData(userId).then(result => {
+    fetchData(userId).then((result) => {
       setData(result);
-      onSuccess(result);  // onSuccess 可能是 stale 的！
+      onSuccess(result); // onSuccess 可能是 stale 的！
     });
-  }, [userId]);  // 缺少 onSuccess 依赖
+  }, [userId]); // 缺少 onSuccess 依赖
 }
 
 // ✅ 完整的依赖数组
 useEffect(() => {
-  fetchData(userId).then(result => {
+  fetchData(userId).then((result) => {
     setData(result);
     onSuccess(result);
   });
@@ -125,15 +136,15 @@ useEffect(() => {
 function InfiniteLoop() {
   const [count, setCount] = useState(0);
   useEffect(() => {
-    setCount(count + 1);  // 触发重渲染，又触发 effect
-  }, [count]);  // 无限循环！
+    setCount(count + 1); // 触发重渲染，又触发 effect
+  }, [count]); // 无限循环！
 }
 
 // ❌ 缺少清理函数 — 内存泄漏
 function MemoryLeak({ userId }) {
   const [user, setUser] = useState(null);
   useEffect(() => {
-    fetchUser(userId).then(setUser);  // 组件卸载后仍然调用 setUser
+    fetchUser(userId).then(setUser); // 组件卸载后仍然调用 setUser
   }, [userId]);
 }
 
@@ -142,10 +153,12 @@ function NoLeak({ userId }) {
   const [user, setUser] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    fetchUser(userId).then(data => {
+    fetchUser(userId).then((data) => {
       if (!cancelled) setUser(data);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 }
 
@@ -154,22 +167,19 @@ function BadDerived({ items }) {
   const [total, setTotal] = useState(0);
   useEffect(() => {
     setTotal(items.reduce((a, b) => a + b.price, 0));
-  }, [items]);  // 不必要的 effect + 额外渲染
+  }, [items]); // 不必要的 effect + 额外渲染
 }
 
 // ✅ 直接计算或用 useMemo
 function GoodDerived({ items }) {
-  const total = useMemo(
-    () => items.reduce((a, b) => a + b.price, 0),
-    [items]
-  );
+  const total = useMemo(() => items.reduce((a, b) => a + b.price, 0), [items]);
 }
 
 // ❌ useEffect 用于事件响应
 function BadEvent() {
   const [query, setQuery] = useState('');
   useEffect(() => {
-    if (query) logSearch(query);  // 应该在事件处理器中
+    if (query) logSearch(query); // 应该在事件处理器中
   }, [query]);
 }
 
@@ -183,11 +193,12 @@ function GoodEvent() {
 ```
 
 #### useMemo / useCallback 误用
+
 ```tsx
 // ❌ 过度优化 — 常量不需要 memo
 function OverOptimized() {
-  const config = useMemo(() => ({ api: '/v1' }), []);  // 无意义
-  const noop = useCallback(() => {}, []);  // 无意义
+  const config = useMemo(() => ({ api: '/v1' }), []); // 无意义
+  const noop = useCallback(() => {}, []); // 无意义
 }
 
 // ❌ 空依赖的 useMemo（可能隐藏 bug）
@@ -200,7 +211,7 @@ function EmptyDeps({ user }) {
 function UselessCallback({ data }) {
   const process = useCallback(() => {
     return data.map(transform);
-  }, [data]);  // 如果 data 每次都是新引用，完全无效
+  }, [data]); // 如果 data 每次都是新引用，完全无效
 }
 
 // ❌ useMemo/useCallback 没有配合 React.memo
@@ -224,6 +235,7 @@ function Parent() {
 ```
 
 #### 组件设计问题
+
 ```tsx
 // ❌ 在组件内定义组件
 function Parent() {
@@ -242,21 +254,22 @@ function Parent() {
 function BadProps() {
   return (
     <MemoComponent
-      style={{ color: 'red' }}      // 每次渲染新对象
-      onClick={() => handle()}       // 每次渲染新函数
-      items={data.filter(x => x)}    // 每次渲染新数组
+      style={{ color: 'red' }} // 每次渲染新对象
+      onClick={() => handle()} // 每次渲染新函数
+      items={data.filter((x) => x)} // 每次渲染新数组
     />
   );
 }
 
 // ❌ 直接修改 props
 function MutateProps({ user }) {
-  user.name = 'Changed';  // 永远不要这样做！
+  user.name = 'Changed'; // 永远不要这样做！
   return <div>{user.name}</div>;
 }
 ```
 
 #### Server Components 错误 (React 19+)
+
 ```tsx
 // ❌ 在 Server Component 中使用客户端 API
 // app/page.tsx (默认是 Server Component)
@@ -288,10 +301,11 @@ export default function Layout({ children }) { ... }
 ```
 
 #### 测试常见错误
+
 ```tsx
 // ❌ 使用 container 查询
 const { container } = render(<Component />);
-const button = container.querySelector('button');  // 不推荐
+const button = container.querySelector('button'); // 不推荐
 
 // ✅ 使用 screen 和语义查询
 render(<Component />);
@@ -310,13 +324,14 @@ expect(component.state.isOpen).toBe(true);
 expect(screen.getByRole('dialog')).toBeVisible();
 
 // ❌ 等待同步查询
-await screen.getByText('Hello');  // getBy 是同步的
+await screen.getByText('Hello'); // getBy 是同步的
 
 // ✅ 异步用 findBy
-await screen.findByText('Hello');  // findBy 会等待
+await screen.findByText('Hello'); // findBy 会等待
 ```
 
 ### React Common Mistakes Checklist
+
 - [ ] Hooks 不在顶层调用（条件/循环中）
 - [ ] useEffect 依赖数组不完整
 - [ ] useEffect 缺少清理函数
@@ -339,18 +354,18 @@ await screen.findByText('Hello');  // findBy 会等待
 
 // ❌ 在 Action 中直接 setState 而不是返回状态
 const [state, action] = useActionState(async (prev, formData) => {
-  setSomeState(newValue);  // 错误！应该返回新状态
+  setSomeState(newValue); // 错误！应该返回新状态
 }, initialState);
 
 // ✅ 返回新状态
 const [state, action] = useActionState(async (prev, formData) => {
   const result = await submitForm(formData);
-  return { ...prev, data: result };  // 返回新状态
+  return { ...prev, data: result }; // 返回新状态
 }, initialState);
 
 // ❌ 忘记处理 isPending
 const [state, action] = useActionState(submitAction, null);
-return <button>Submit</button>;  // 用户可以重复点击
+return <button>Submit</button>; // 用户可以重复点击
 
 // ✅ 使用 isPending 禁用按钮
 const [state, action, isPending] = useActionState(submitAction, null);
@@ -360,8 +375,12 @@ return <button disabled={isPending}>Submit</button>;
 
 // ❌ 在 form 同级调用 useFormStatus
 function Form() {
-  const { pending } = useFormStatus();  // 永远是 undefined！
-  return <form><button disabled={pending}>Submit</button></form>;
+  const { pending } = useFormStatus(); // 永远是 undefined！
+  return (
+    <form>
+      <button disabled={pending}>Submit</button>
+    </form>
+  );
 }
 
 // ✅ 在子组件中调用
@@ -370,7 +389,11 @@ function SubmitButton() {
   return <button disabled={pending}>Submit</button>;
 }
 function Form() {
-  return <form><SubmitButton /></form>;
+  return (
+    <form>
+      <SubmitButton />
+    </form>
+  );
 }
 
 // === useOptimistic 错误 ===
@@ -379,7 +402,7 @@ function Form() {
 function PaymentButton() {
   const [optimisticPaid, setPaid] = useOptimistic(false);
   const handlePay = async () => {
-    setPaid(true);  // 危险：显示已支付但可能失败
+    setPaid(true); // 危险：显示已支付但可能失败
     await processPayment();
   };
 }
@@ -394,12 +417,13 @@ const handleLike = async () => {
   try {
     await likePost();
   } catch {
-    toast.error('点赞失败，请重试');  // 通知用户
+    toast.error('点赞失败，请重试'); // 通知用户
   }
 };
 ```
 
 ### React 19 Forms Checklist
+
 - [ ] useActionState 返回新状态而不是 setState
 - [ ] useActionState 正确使用 isPending 禁用提交
 - [ ] useFormStatus 在 form 子组件中调用
@@ -416,9 +440,9 @@ const handleLike = async () => {
 function BadPage() {
   return (
     <Suspense fallback={<FullPageLoader />}>
-      <FastHeader />      {/* 快 */}
+      <FastHeader /> {/* 快 */}
       <SlowMainContent /> {/* 慢——阻塞整个页面 */}
-      <FastFooter />      {/* 快 */}
+      <FastFooter /> {/* 快 */}
     </Suspense>
   );
 }
@@ -440,7 +464,7 @@ function GoodPage() {
 function NoErrorHandling() {
   return (
     <Suspense fallback={<Loading />}>
-      <DataFetcher />  {/* 抛错导致白屏 */}
+      <DataFetcher /> {/* 抛错导致白屏 */}
     </Suspense>
   );
 }
@@ -460,7 +484,7 @@ function WithErrorHandling() {
 
 // ❌ 在组件外创建 Promise（每次渲染新 Promise）
 function BadUse() {
-  const data = use(fetchData());  // 每次渲染都创建新 Promise！
+  const data = use(fetchData()); // 每次渲染都创建新 Promise！
   return <div>{data}</div>;
 }
 
@@ -479,7 +503,7 @@ function Child({ dataPromise }) {
 // ❌ 在 layout.tsx 中 await 慢数据——阻塞所有子页面
 // app/layout.tsx
 export default async function Layout({ children }) {
-  const config = await fetchSlowConfig();  // 阻塞整个应用！
+  const config = await fetchSlowConfig(); // 阻塞整个应用！
   return <ConfigProvider value={config}>{children}</ConfigProvider>;
 }
 
@@ -495,6 +519,7 @@ export default function Layout({ children }) {
 ```
 
 ### Suspense Checklist
+
 - [ ] 慢内容有独立的 Suspense 边界
 - [ ] 每个 Suspense 有对应的 Error Boundary
 - [ ] fallback 是有意义的骨架屏（不是简单 spinner）
@@ -510,7 +535,7 @@ export default function Layout({ children }) {
 // ❌ queryKey 不包含查询参数
 function BadQuery({ userId, filters }) {
   const { data } = useQuery({
-    queryKey: ['users'],  // 缺少 userId 和 filters！
+    queryKey: ['users'], // 缺少 userId 和 filters！
     queryFn: () => fetchUsers(userId, filters),
   });
   // userId 或 filters 变化时数据不会更新
@@ -535,7 +560,7 @@ const { data } = useQuery({
 const { data } = useQuery({
   queryKey: ['data'],
   queryFn: fetchData,
-  staleTime: 5 * 60 * 1000,  // 5 分钟内不会自动 refetch
+  staleTime: 5 * 60 * 1000, // 5 分钟内不会自动 refetch
 });
 
 // === useSuspenseQuery 错误 ===
@@ -544,7 +569,7 @@ const { data } = useQuery({
 const { data } = useSuspenseQuery({
   queryKey: ['user', userId],
   queryFn: () => fetchUser(userId),
-  enabled: !!userId,  // 错误！useSuspenseQuery 不支持 enabled
+  enabled: !!userId, // 错误！useSuspenseQuery 不支持 enabled
 });
 
 // ✅ 条件渲染实现
@@ -610,7 +635,7 @@ const mutation = useMutation({
 // === v5 迁移错误 ===
 
 // ❌ 使用废弃的 API
-const { data, isLoading } = useQuery(['key'], fetchFn);  // v4 语法
+const { data, isLoading } = useQuery(['key'], fetchFn); // v4 语法
 
 // ✅ v5 单一对象参数
 const { data, isPending } = useQuery({
@@ -623,12 +648,13 @@ if (isLoading) return <Spinner />;
 // v5 中 isLoading = isPending && isFetching
 
 // ✅ 根据意图选择
-if (isPending) return <Spinner />;  // 没有缓存数据
+if (isPending) return <Spinner />; // 没有缓存数据
 // 或
-if (isFetching) return <Refreshing />;  // 正在后台刷新
+if (isFetching) return <Refreshing />; // 正在后台刷新
 ```
 
 ### TanStack Query Checklist
+
 - [ ] queryKey 包含所有影响数据的参数
 - [ ] 设置了合理的 staleTime（不是默认 0）
 - [ ] useSuspenseQuery 不使用 enabled
@@ -638,6 +664,7 @@ if (isFetching) return <Refreshing />;  // 正在后台刷新
 - [ ] 理解 isPending vs isLoading vs isFetching
 
 ### TypeScript/JavaScript Common Mistakes
+
 - [ ] `==` instead of `===`
 - [ ] Modifying array/object during iteration
 - [ ] `this` context lost in callbacks
@@ -648,21 +675,23 @@ if (isFetching) return <Refreshing />;  // 正在后台刷新
 ## Vue 3
 
 ### 响应性丢失
+
 ```vue
 <!-- ❌ 解构 reactive 丢失响应性 -->
 <script setup>
-const state = reactive({ count: 0 })
-const { count } = state  // count 不是响应式的！
+const state = reactive({ count: 0 });
+const { count } = state; // count 不是响应式的！
 </script>
 
 <!-- ✅ 使用 toRefs -->
 <script setup>
-const state = reactive({ count: 0 })
-const { count } = toRefs(state)  // count.value 是响应式的
+const state = reactive({ count: 0 });
+const { count } = toRefs(state); // count.value 是响应式的
 </script>
 ```
 
 ### Props 响应性传递
+
 ```vue
 <!-- ❌ 传递 props 值到 composable 丢失响应性 -->
 <script setup>
@@ -680,48 +709,53 @@ const { data } = useFetch(toRef(props, 'id'))
 ```
 
 ### Watch 清理
+
 ```vue
 <!-- ❌ 异步 watch 无清理，导致竞态 -->
 <script setup>
 watch(id, async (newId) => {
-  const data = await fetchData(newId)
-  result.value = data  // 旧请求可能覆盖新结果！
-})
+  const data = await fetchData(newId);
+  result.value = data; // 旧请求可能覆盖新结果！
+});
 </script>
 
 <!-- ✅ 使用 onCleanup 取消旧请求 -->
 <script setup>
 watch(id, async (newId, _, onCleanup) => {
-  const controller = new AbortController()
-  onCleanup(() => controller.abort())
+  const controller = new AbortController();
+  onCleanup(() => controller.abort());
 
-  const data = await fetchData(newId, controller.signal)
-  result.value = data
-})
+  const data = await fetchData(newId, controller.signal);
+  result.value = data;
+});
 </script>
 ```
 
 ### Computed 副作用
+
 ```vue
 <!-- ❌ computed 中修改其他状态 -->
 <script setup>
 const total = computed(() => {
-  sideEffect.value++  // 副作用！每次访问都会执行
-  return items.value.reduce((a, b) => a + b, 0)
-})
+  sideEffect.value++; // 副作用！每次访问都会执行
+  return items.value.reduce((a, b) => a + b, 0);
+});
 </script>
 
 <!-- ✅ computed 只做纯计算 -->
 <script setup>
 const total = computed(() => {
-  return items.value.reduce((a, b) => a + b, 0)
-})
+  return items.value.reduce((a, b) => a + b, 0);
+});
 // 副作用放 watch
-watch(total, () => { sideEffect.value++ })
+watch(total, () => {
+  sideEffect.value++;
+});
 </script>
 ```
 
 ### 模板常见错误
+
 ```vue
 <!-- ❌ v-if 和 v-for 同时使用（v-if 优先级更高） -->
 <template>
@@ -739,6 +773,7 @@ watch(total, () => { sideEffect.value++ })
 ```
 
 ### Common Mistakes
+
 - [ ] 解构 reactive 对象丢失响应性
 - [ ] props 传递给 composable 时未保持响应性
 - [ ] watch 异步回调无清理函数
@@ -753,6 +788,7 @@ watch(total, () => { sideEffect.value++ })
 ## Python
 
 ### Mutable Default Arguments
+
 ```python
 # ❌ Bug: List shared across all calls
 def add_item(item, items=[]):
@@ -768,6 +804,7 @@ def add_item(item, items=None):
 ```
 
 ### Exception Handling
+
 ```python
 # ❌ Catching everything, including KeyboardInterrupt
 try:
@@ -784,6 +821,7 @@ except ValueError as e:
 ```
 
 ### Class Attributes
+
 ```python
 # ❌ Shared mutable class attribute
 class User:
@@ -796,6 +834,7 @@ class User:
 ```
 
 ### Common Mistakes
+
 - [ ] Using `is` instead of `==` for value comparison
 - [ ] Forgetting `self` parameter in methods
 - [ ] Modifying list while iterating
@@ -1139,18 +1178,21 @@ struct Good<'a> {
 ### Rust 审查清单
 
 **所有权与借用**
+
 - [ ] clone() 是有意为之，不是绕过借用检查器
 - [ ] 避免在结构体中存储借用（除非必要）
 - [ ] Rc/Arc 使用合理，没有隐藏不必要的共享状态
 - [ ] 没有不必要的 RefCell（运行时检查 vs 编译时）
 
 **Unsafe 代码**
+
 - [ ] 每个 unsafe 块有 SAFETY 注释
 - [ ] unsafe fn 有 # Safety 文档
 - [ ] 安全不变量被清晰记录
 - [ ] unsafe 边界尽可能小
 
 **异步/并发**
+
 - [ ] 没有在异步上下文中阻塞
 - [ ] 没有跨 .await 持有 std::sync 锁
 - [ ] spawn 的任务满足 'static 约束
@@ -1158,25 +1200,29 @@ struct Good<'a> {
 - [ ] 锁的顺序一致（避免死锁）
 
 **错误处理**
+
 - [ ] 库代码使用 thiserror，应用代码使用 anyhow
 - [ ] 错误有足够的上下文信息
 - [ ] 没有在生产代码中 unwrap/expect
 - [ ] must_use 返回值被正确处理
 
 **性能**
+
 - [ ] 避免不必要的 collect()
 - [ ] 大数据结构传引用
 - [ ] 字符串拼接使用 String::with_capacity 或 write!
 - [ ] impl Trait 优于 Box<dyn Trait>（当可能时）
 
 **类型系统**
+
 - [ ] 善用 newtype 模式增加类型安全
-- [ ] 枚举穷尽匹配（没有 _ 通配符隐藏新变体）
+- [ ] 枚举穷尽匹配（没有 \_ 通配符隐藏新变体）
 - [ ] 生命周期尽可能简化
 
 ## SQL
 
 ### Injection Vulnerabilities
+
 ```sql
 -- ❌ String concatenation (SQL injection risk)
 query = "SELECT * FROM users WHERE id = " + user_id
@@ -1187,13 +1233,15 @@ cursor.execute(query, (user_id,))
 ```
 
 ### Performance Issues
+
 - [ ] Missing indexes on filtered/joined columns
-- [ ] SELECT * instead of specific columns
+- [ ] SELECT \* instead of specific columns
 - [ ] N+1 query patterns
 - [ ] Missing LIMIT on large tables
 - [ ] Inefficient subqueries vs JOINs
 
 ### Common Mistakes
+
 - [ ] Not handling NULL comparisons correctly
 - [ ] Missing transactions for related operations
 - [ ] Incorrect JOIN types
@@ -1203,6 +1251,7 @@ cursor.execute(query, (user_id,))
 ## API Design
 
 ### REST Issues
+
 - [ ] Inconsistent resource naming
 - [ ] Wrong HTTP methods (POST for idempotent operations)
 - [ ] Missing pagination for list endpoints
@@ -1210,6 +1259,7 @@ cursor.execute(query, (user_id,))
 - [ ] Missing rate limiting
 
 ### Data Validation
+
 - [ ] Missing input validation
 - [ ] Incorrect data type validation
 - [ ] Missing length/range checks
@@ -1219,6 +1269,7 @@ cursor.execute(query, (user_id,))
 ## Testing
 
 ### Test Quality Issues
+
 - [ ] Testing implementation details instead of behavior
 - [ ] Missing edge case tests
 - [ ] Flaky tests (non-deterministic)

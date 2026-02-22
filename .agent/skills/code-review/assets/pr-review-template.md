@@ -20,15 +20,18 @@ Copy and use this template for your code reviews.
 ## Required Changes
 
 🔴 **[blocking]** [Issue description]
+
 > [Code location or example]
 > [Suggested fix or explanation]
 
 🔴 **[blocking]** [Issue description]
+
 > [Details]
 
 ## Important Suggestions
 
 🟡 **[important]** [Issue description]
+
 > [Why this matters]
 > [Suggested approach]
 
@@ -68,6 +71,7 @@ Copy and use this template for your code reviews.
 ## Quick Copy Templates
 
 ### Blocking Issue
+
 ```
 🔴 **[blocking]** [Title]
 
@@ -82,6 +86,7 @@ Copy and use this template for your code reviews.
 ```
 
 ### Important Suggestion
+
 ```
 🟡 **[important]** [Title]
 
@@ -93,6 +98,7 @@ Copy and use this template for your code reviews.
 ```
 
 ### Minor Suggestion
+
 ```
 🟢 **[nit]** [Suggestion]
 
@@ -100,6 +106,7 @@ Not blocking, but consider [improvement].
 ```
 
 ### Praise
+
 ```
 🎉 **[praise]** Great work on [specific thing]!
 
@@ -107,6 +114,7 @@ Not blocking, but consider [improvement].
 ```
 
 ### Question
+
 ```
 ❓ **[question]** [Your question]
 

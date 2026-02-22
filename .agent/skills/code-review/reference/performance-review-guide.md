@@ -18,13 +18,13 @@
 
 ### 2024 核心指标
 
-| 指标 | 全称 | 目标值 | 含义 |
-|------|------|--------|------|
-| **LCP** | Largest Contentful Paint | ≤ 2.5s | 最大内容绘制时间 |
-| **INP** | Interaction to Next Paint | ≤ 200ms | 交互响应时间（2024 年替代 FID）|
-| **CLS** | Cumulative Layout Shift | ≤ 0.1 | 累积布局偏移 |
-| **FCP** | First Contentful Paint | ≤ 1.8s | 首次内容绘制 |
-| **TBT** | Total Blocking Time | ≤ 200ms | 主线程阻塞时间 |
+| 指标    | 全称                      | 目标值  | 含义                            |
+| ------- | ------------------------- | ------- | ------------------------------- |
+| **LCP** | Largest Contentful Paint  | ≤ 2.5s  | 最大内容绘制时间                |
+| **INP** | Interaction to Next Paint | ≤ 200ms | 交互响应时间（2024 年替代 FID） |
+| **CLS** | Cumulative Layout Shift   | ≤ 0.1   | 累积布局偏移                    |
+| **FCP** | First Contentful Paint    | ≤ 1.8s  | 首次内容绘制                    |
+| **TBT** | Total Blocking Time       | ≤ 200ms | 主线程阻塞时间                  |
 
 ### LCP 优化检查
 
@@ -47,6 +47,7 @@
 ```
 
 **审查要点：**
+
 - [ ] LCP 元素是否设置 `fetchpriority="high"`？
 - [ ] 是否使用 WebP/AVIF 格式？
 - [ ] 是否有服务端渲染或静态生成？
@@ -59,21 +60,17 @@
 <link rel="stylesheet" href="all-styles.css" />
 
 <!-- ✅ 关键 CSS 内联 + 异步加载其余 -->
-<style>/* 首屏关键样式 */</style>
+<style>
+  /* 首屏关键样式 */
+</style>
 <link rel="preload" href="styles.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
 
 <!-- ❌ 阻塞渲染的字体 -->
-@font-face {
-  font-family: 'CustomFont';
-  src: url('font.woff2');
-}
+@font-face { font-family: 'CustomFont'; src: url('font.woff2'); }
 
 <!-- ✅ 字体显示优化 -->
-@font-face {
-  font-family: 'CustomFont';
-  src: url('font.woff2');
-  font-display: swap;  /* 先用系统字体，加载后切换 */
-}
+@font-face { font-family: 'CustomFont'; src: url('font.woff2'); font-display: swap; /*
+先用系统字体，加载后切换 */ }
 ```
 
 ### INP 优化检查
@@ -89,7 +86,7 @@ button.addEventListener('click', () => {
 // ✅ 拆分长任务
 button.addEventListener('click', async () => {
   // 让出主线程
-  await scheduler.yield?.() ?? new Promise(r => setTimeout(r, 0));
+  (await scheduler.yield?.()) ?? new Promise((r) => setTimeout(r, 0));
 
   // 分批处理
   for (const chunk of chunks) {
@@ -109,7 +106,9 @@ worker.onmessage = (e) => updateUI(e.data);
 
 ```css
 /* ❌ 未指定尺寸的媒体 */
-img { width: 100%; }
+img {
+  width: 100%;
+}
 
 /* ✅ 预留空间 */
 img {
@@ -118,7 +117,8 @@ img {
 }
 
 /* ❌ 动态插入内容导致布局偏移 */
-.ad-container { }
+.ad-container {
+}
 
 /* ✅ 预留固定高度 */
 .ad-container {
@@ -127,6 +127,7 @@ img {
 ```
 
 **CLS 审查清单：**
+
 - [ ] 图片/视频是否有 width/height 或 aspect-ratio？
 - [ ] 字体加载是否使用 `font-display: swap`？
 - [ ] 动态内容是否预留空间？
@@ -175,7 +176,7 @@ import { format } from 'date-fns';
 // ❌ 未使用 Tree Shaking
 export default {
   fn1() {},
-  fn2() {},  // 未使用但被打包
+  fn2() {}, // 未使用但被打包
 };
 
 // ✅ 命名导出支持 Tree Shaking
@@ -184,6 +185,7 @@ export function fn2() {}
 ```
 
 **Bundle 审查清单：**
+
 - [ ] 是否使用动态 import() 进行代码分割？
 - [ ] 大型库是否按需导入？
 - [ ] 是否分析过 bundle 大小？（webpack-bundle-analyzer）
@@ -196,9 +198,11 @@ export function fn2() {}
 function List({ items }) {
   return (
     <ul>
-      {items.map(item => <li key={item.id}>{item.name}</li>)}
+      {items.map((item) => (
+        <li key={item.id}>{item.name}</li>
+      ))}
     </ul>
-  );  // 10000 条数据 = 10000 个 DOM 节点
+  ); // 10000 条数据 = 10000 个 DOM 节点
 }
 
 // ✅ 虚拟列表 - 只渲染可见项
@@ -206,20 +210,15 @@ import { FixedSizeList } from 'react-window';
 
 function VirtualList({ items }) {
   return (
-    <FixedSizeList
-      height={400}
-      itemCount={items.length}
-      itemSize={35}
-    >
-      {({ index, style }) => (
-        <div style={style}>{items[index].name}</div>
-      )}
+    <FixedSizeList height={400} itemCount={items.length} itemSize={35}>
+      {({ index, style }) => <div style={style}>{items[index].name}</div>}
     </FixedSizeList>
   );
 }
 ```
 
 **大数据审查要点：**
+
 - [ ] 列表超过 100 项是否使用虚拟滚动？
 - [ ] 表格是否支持分页或虚拟化？
 - [ ] 是否有不必要的全量渲染？
@@ -276,7 +275,7 @@ function createHandler() {
 // ✅ 只保留必要数据
 function createHandler() {
   const largeData = new Array(1000000).fill('x');
-  const length = largeData.length;  // 只保留需要的值
+  const length = largeData.length; // 只保留需要的值
 
   return function handler() {
     console.log(length);
@@ -314,11 +313,11 @@ useEffect(() => {
 
 ### 检测工具
 
-| 工具 | 用途 |
-|------|------|
-| Chrome DevTools Memory | 堆快照分析 |
-| MemLab (Meta) | 自动化内存泄漏检测 |
-| Performance Monitor | 实时内存监控 |
+| 工具                   | 用途               |
+| ---------------------- | ------------------ |
+| Chrome DevTools Memory | 堆快照分析         |
+| MemLab (Meta)          | 自动化内存泄漏检测 |
+| Performance Monitor    | 实时内存监控       |
 
 ---
 
@@ -346,7 +345,7 @@ posts = Post.objects.prefetch_related('tags').all()
 // ❌ N+1 问题
 const users = await userRepository.find();
 for (const user of users) {
-  const posts = await user.posts;  // 每次循环都查询
+  const posts = await user.posts; // 每次循环都查询
 }
 
 // ✅ Eager Loading
@@ -405,12 +404,14 @@ cursor.execute("SELECT * FROM users WHERE id IN %s", (tuple(user_ids),))
 
 ```markdown
 🔴 必须检查:
+
 - [ ] 是否存在 N+1 查询？
 - [ ] WHERE 子句列是否有索引？
-- [ ] 是否避免了 SELECT *？
+- [ ] 是否避免了 SELECT \*？
 - [ ] 大表查询是否有 LIMIT？
 
 🟡 建议检查:
+
 - [ ] 是否使用了 EXPLAIN 分析查询计划？
 - [ ] 复合索引列顺序是否正确？
 - [ ] 是否有未使用的索引？
@@ -426,14 +427,14 @@ cursor.execute("SELECT * FROM users WHERE id IN %s", (tuple(user_ids),))
 ```javascript
 // ❌ 返回全部数据
 app.get('/users', async (req, res) => {
-  const users = await User.findAll();  // 可能返回 100000 条
+  const users = await User.findAll(); // 可能返回 100000 条
   res.json(users);
 });
 
 // ✅ 分页 + 限制最大数量
 app.get('/users', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
-  const limit = Math.min(parseInt(req.query.limit) || 20, 100);  // 最大 100
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100); // 最大 100
   const offset = (page - 1) * limit;
 
   const { rows, count } = await User.findAndCountAll({
@@ -479,8 +480,8 @@ async function getUser(id) {
 // ✅ HTTP 缓存头
 app.get('/static-data', (req, res) => {
   res.set({
-    'Cache-Control': 'public, max-age=86400',  // 24 小时
-    'ETag': 'abc123',
+    'Cache-Control': 'public, max-age=86400', // 24 小时
+    ETag: 'abc123',
   });
   res.json(data);
 });
@@ -511,8 +512,8 @@ app.get('/users', async (req, res) => {
 const rateLimit = require('express-rate-limit');
 
 const limiter = rateLimit({
-  windowMs: 60 * 1000,  // 1 分钟
-  max: 100,             // 最多 100 次请求
+  windowMs: 60 * 1000, // 1 分钟
+  max: 100, // 最多 100 次请求
   message: { error: 'Too many requests, please try again later.' },
 });
 
@@ -536,14 +537,14 @@ app.use('/api/', limiter);
 
 ### 常见复杂度对比
 
-| 复杂度 | 名称 | 10 条 | 1000 条 | 100 万条 | 示例 |
-|--------|------|-------|---------|----------|------|
-| O(1) | 常数 | 1 | 1 | 1 | 哈希查找 |
-| O(log n) | 对数 | 3 | 10 | 20 | 二分查找 |
-| O(n) | 线性 | 10 | 1000 | 100 万 | 遍历数组 |
-| O(n log n) | 线性对数 | 33 | 10000 | 2000 万 | 快速排序 |
-| O(n²) | 平方 | 100 | 100 万 | 1 万亿 | 嵌套循环 |
-| O(2ⁿ) | 指数 | 1024 | ∞ | ∞ | 递归斐波那契 |
+| 复杂度     | 名称     | 10 条 | 1000 条 | 100 万条 | 示例         |
+| ---------- | -------- | ----- | ------- | -------- | ------------ |
+| O(1)       | 常数     | 1     | 1       | 1        | 哈希查找     |
+| O(log n)   | 对数     | 3     | 10      | 20       | 二分查找     |
+| O(n)       | 线性     | 10    | 1000    | 100 万   | 遍历数组     |
+| O(n log n) | 线性对数 | 33    | 10000   | 2000 万  | 快速排序     |
+| O(n²)      | 平方     | 100   | 100 万  | 1 万亿   | 嵌套循环     |
+| O(2ⁿ)      | 指数     | 1024  | ∞       | ∞        | 递归斐波那契 |
 
 ### 代码审查中的识别
 
@@ -580,7 +581,8 @@ function findDuplicates(arr) {
 function removeDuplicates(arr) {
   const result = [];
   for (const item of arr) {
-    if (!result.includes(item)) {  // includes 是 O(n)
+    if (!result.includes(item)) {
+      // includes 是 O(n)
       result.push(item);
     }
   }
@@ -613,7 +615,7 @@ function getUser(id) {
 
 ```javascript
 // ⚠️ O(n) 空间 - 创建新数组
-const doubled = arr.map(x => x * 2);
+const doubled = arr.map((x) => x * 2);
 
 // ✅ O(1) 空间 - 原地修改（如果允许）
 for (let i = 0; i < arr.length; i++) {
@@ -623,7 +625,7 @@ for (let i = 0; i < arr.length; i++) {
 // ⚠️ 递归深度过大可能栈溢出
 function factorial(n) {
   if (n <= 1) return 1;
-  return n * factorial(n - 1);  // O(n) 栈空间
+  return n * factorial(n - 1); // O(n) 栈空间
 }
 
 // ✅ 迭代版本 O(1) 空间
@@ -651,34 +653,40 @@ function factorial(n) {
 ### 🔴 必须检查（阻塞级）
 
 **前端：**
+
 - [ ] LCP 图片是否懒加载？（不应该）
 - [ ] 是否有 `transition: all`？
 - [ ] 是否动画 width/height/top/left？
 - [ ] 列表 >100 项是否虚拟化？
 
 **后端：**
+
 - [ ] 是否存在 N+1 查询？
 - [ ] 列表接口是否有分页？
-- [ ] 是否有 SELECT * 查大表？
+- [ ] 是否有 SELECT \* 查大表？
 
 **通用：**
+
 - [ ] 是否有 O(n²) 或更差的嵌套循环？
 - [ ] useEffect/事件监听是否有清理？
 
 ### 🟡 建议检查（重要级）
 
 **前端：**
+
 - [ ] 是否使用代码分割？
 - [ ] 大型库是否按需导入？
 - [ ] 图片是否使用 WebP/AVIF？
 - [ ] 是否有未使用的依赖？
 
 **后端：**
+
 - [ ] 热点数据是否有缓存？
 - [ ] WHERE 列是否有索引？
 - [ ] 是否有慢查询监控？
 
 **API：**
+
 - [ ] 是否启用响应压缩？
 - [ ] 是否有速率限制？
 - [ ] 是否只返回必要字段？
@@ -696,21 +704,21 @@ function factorial(n) {
 
 ### 前端指标
 
-| 指标 | 好 | 需改进 | 差 |
-|------|-----|--------|-----|
-| LCP | ≤ 2.5s | 2.5-4s | > 4s |
-| INP | ≤ 200ms | 200-500ms | > 500ms |
-| CLS | ≤ 0.1 | 0.1-0.25 | > 0.25 |
-| FCP | ≤ 1.8s | 1.8-3s | > 3s |
+| 指标             | 好      | 需改进    | 差      |
+| ---------------- | ------- | --------- | ------- |
+| LCP              | ≤ 2.5s  | 2.5-4s    | > 4s    |
+| INP              | ≤ 200ms | 200-500ms | > 500ms |
+| CLS              | ≤ 0.1   | 0.1-0.25  | > 0.25  |
+| FCP              | ≤ 1.8s  | 1.8-3s    | > 3s    |
 | Bundle Size (JS) | < 200KB | 200-500KB | > 500KB |
 
 ### 后端指标
 
-| 指标 | 好 | 需改进 | 差 |
-|------|-----|--------|-----|
+| 指标         | 好      | 需改进    | 差      |
+| ------------ | ------- | --------- | ------- |
 | API 响应时间 | < 100ms | 100-500ms | > 500ms |
-| 数据库查询 | < 50ms | 50-200ms | > 200ms |
-| 页面加载 | < 3s | 3-5s | > 5s |
+| 数据库查询   | < 50ms  | 50-200ms  | > 200ms |
+| 页面加载     | < 3s    | 3-5s      | > 5s    |
 
 ---
 
@@ -718,27 +726,27 @@ function factorial(n) {
 
 ### 前端性能
 
-| 工具 | 用途 |
-|------|------|
-| [Lighthouse](https://developer.chrome.com/docs/lighthouse/) | Core Web Vitals 测试 |
-| [WebPageTest](https://www.webpagetest.org/) | 详细性能分析 |
-| [webpack-bundle-analyzer](https://github.com/webpack-contrib/webpack-bundle-analyzer) | Bundle 分析 |
-| [Chrome DevTools Performance](https://developer.chrome.com/docs/devtools/performance/) | 运行时性能分析 |
+| 工具                                                                                   | 用途                 |
+| -------------------------------------------------------------------------------------- | -------------------- |
+| [Lighthouse](https://developer.chrome.com/docs/lighthouse/)                            | Core Web Vitals 测试 |
+| [WebPageTest](https://www.webpagetest.org/)                                            | 详细性能分析         |
+| [webpack-bundle-analyzer](https://github.com/webpack-contrib/webpack-bundle-analyzer)  | Bundle 分析          |
+| [Chrome DevTools Performance](https://developer.chrome.com/docs/devtools/performance/) | 运行时性能分析       |
 
 ### 内存检测
 
-| 工具 | 用途 |
-|------|------|
+| 工具                                                  | 用途               |
+| ----------------------------------------------------- | ------------------ |
 | [MemLab](https://github.com/facebookincubator/memlab) | 自动化内存泄漏检测 |
-| Chrome Memory Tab | 堆快照分析 |
+| Chrome Memory Tab                                     | 堆快照分析         |
 
 ### 后端性能
 
-| 工具 | 用途 |
-|------|------|
-| EXPLAIN | 数据库查询计划分析 |
-| [pganalyze](https://pganalyze.com/) | PostgreSQL 性能监控 |
-| [New Relic](https://newrelic.com/) / [Datadog](https://www.datadoghq.com/) | APM 监控 |
+| 工具                                                                       | 用途                |
+| -------------------------------------------------------------------------- | ------------------- |
+| EXPLAIN                                                                    | 数据库查询计划分析  |
+| [pganalyze](https://pganalyze.com/)                                        | PostgreSQL 性能监控 |
+| [New Relic](https://newrelic.com/) / [Datadog](https://www.datadoghq.com/) | APM 监控            |
 
 ---
 

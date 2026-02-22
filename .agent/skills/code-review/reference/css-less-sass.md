@@ -105,8 +105,12 @@ CSS 及预处理器代码审查指南，覆盖性能、可维护性、响应式�
 
 ```css
 /* ✅ 工具类 - 明确需要覆盖 */
-.hidden { display: none !important; }
-.sr-only { position: absolute !important; }
+.hidden {
+  display: none !important;
+}
+.sr-only {
+  position: absolute !important;
+}
 
 /* ✅ 覆盖第三方库样式（无法修改源码时） */
 .third-party-modal {
@@ -115,7 +119,9 @@ CSS 及预处理器代码审查指南，覆盖性能、可维护性、响应式�
 
 /* ✅ 打印样式 */
 @media print {
-  .no-print { display: none !important; }
+  .no-print {
+    display: none !important;
+  }
 }
 ```
 
@@ -124,16 +130,20 @@ CSS 及预处理器代码审查指南，覆盖性能、可维护性、响应式�
 ```css
 /* ❌ 解决特异性问题 - 应该重构选择器 */
 .button {
-  background: blue !important;  /* 为什么需要 !important? */
+  background: blue !important; /* 为什么需要 !important? */
 }
 
 /* ❌ 覆盖自己写的样式 */
-.card { padding: 20px; }
-.card { padding: 30px !important; }  /* 直接修改原规则 */
+.card {
+  padding: 20px;
+}
+.card {
+  padding: 30px !important;
+} /* 直接修改原规则 */
 
 /* ❌ 在组件样式中 */
 .my-component .title {
-  font-size: 24px !important;  /* 破坏组件封装 */
+  font-size: 24px !important; /* 破坏组件封装 */
 }
 ```
 
@@ -159,10 +169,10 @@ button.my-btn {
 
 /* ✅ 使用 :where() 降低被覆盖样式的特异性 */
 :where(.btn) {
-  background: blue;  /* 特异性为 0 */
+  background: blue; /* 特异性为 0 */
 }
 .my-btn {
-  background: red;   /* 可以正常覆盖 */
+  background: red; /* 可以正常覆盖 */
 }
 ```
 
@@ -190,7 +200,9 @@ button.my-btn {
 
 /* ✅ 明确指定属性 */
 .button {
-  transition: background-color 0.3s ease, transform 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    transform 0.3s ease;
 }
 
 /* ✅ 多属性时使用变量 */
@@ -208,11 +220,11 @@ button.my-btn {
 ```css
 /* ❌ 每帧触发重绘 - 严重影响性能 */
 .card {
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   transition: box-shadow 0.3s ease;
 }
 .card:hover {
-  box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
 }
 
 /* ✅ 使用伪元素 + opacity */
@@ -223,7 +235,7 @@ button.my-btn {
   content: '';
   position: absolute;
   inset: 0;
-  box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
@@ -239,24 +251,31 @@ button.my-btn {
 ```css
 /* ❌ 动画这些属性会触发布局重计算 */
 .bad-animation {
-  transition: width 0.3s, height 0.3s, top 0.3s, left 0.3s, margin 0.3s;
+  transition:
+    width 0.3s,
+    height 0.3s,
+    top 0.3s,
+    left 0.3s,
+    margin 0.3s;
 }
 
 /* ✅ 只动画 transform 和 opacity（仅触发合成） */
 .good-animation {
-  transition: transform 0.3s, opacity 0.3s;
+  transition:
+    transform 0.3s,
+    opacity 0.3s;
 }
 
 /* 位移用 translate 代替 top/left */
 .move {
-  transform: translateX(100px);  /* ✅ */
-  /* left: 100px; */             /* ❌ */
+  transform: translateX(100px); /* ✅ */
+  /* left: 100px; */ /* ❌ */
 }
 
 /* 缩放用 scale 代替 width/height */
 .grow {
-  transform: scale(1.1);  /* ✅ */
-  /* width: 110%; */      /* ❌ */
+  transform: scale(1.1); /* ✅ */
+  /* width: 110%; */ /* ❌ */
 }
 ```
 
@@ -276,11 +295,17 @@ button.my-btn {
 }
 
 /* ❌ 通配符选择器 */
-* { box-sizing: border-box; }           /* 影响所有元素 */
-[class*="icon-"] { display: inline; }   /* 属性选择器较慢 */
+* {
+  box-sizing: border-box;
+} /* 影响所有元素 */
+[class*='icon-'] {
+  display: inline;
+} /* 属性选择器较慢 */
 
 /* ✅ 限制范围 */
-.icon-box * { box-sizing: border-box; }
+.icon-box * {
+  box-sizing: border-box;
+}
 ```
 
 #### 大量阴影和滤镜
@@ -289,17 +314,17 @@ button.my-btn {
 /* ⚠️ 复杂阴影影响渲染性能 */
 .heavy-shadow {
   box-shadow:
-    0 1px 2px rgba(0,0,0,0.1),
-    0 2px 4px rgba(0,0,0,0.1),
-    0 4px 8px rgba(0,0,0,0.1),
-    0 8px 16px rgba(0,0,0,0.1),
-    0 16px 32px rgba(0,0,0,0.1);  /* 5 层阴影 */
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    0 4px 8px rgba(0, 0, 0, 0.1),
+    0 8px 16px rgba(0, 0, 0, 0.1),
+    0 16px 32px rgba(0, 0, 0, 0.1); /* 5 层阴影 */
 }
 
 /* ⚠️ 滤镜消耗 GPU */
 .blur-heavy {
   filter: blur(20px) brightness(1.2) contrast(1.1);
-  backdrop-filter: blur(10px);  /* 更消耗性能 */
+  backdrop-filter: blur(10px); /* 更消耗性能 */
 }
 ```
 
@@ -318,7 +343,7 @@ button.my-btn {
 
 /* 使用 contain 限制重绘范围 */
 .card {
-  contain: layout paint;  /* 告诉浏览器内部变化不影响外部 */
+  contain: layout paint; /* 告诉浏览器内部变化不影响外部 */
 }
 ```
 
@@ -387,16 +412,20 @@ button.my-btn {
 ```css
 /* 推荐断点（基于内容而非设备） */
 :root {
-  --breakpoint-sm: 640px;   /* 大手机 */
-  --breakpoint-md: 768px;   /* 平板竖屏 */
-  --breakpoint-lg: 1024px;  /* 平板横屏/小笔记本 */
-  --breakpoint-xl: 1280px;  /* 桌面 */
+  --breakpoint-sm: 640px; /* 大手机 */
+  --breakpoint-md: 768px; /* 平板竖屏 */
+  --breakpoint-lg: 1024px; /* 平板横屏/小笔记本 */
+  --breakpoint-xl: 1280px; /* 桌面 */
   --breakpoint-2xl: 1536px; /* 大桌面 */
 }
 
 /* 使用示例 */
-@media (min-width: 768px) { /* md */ }
-@media (min-width: 1024px) { /* lg */ }
+@media (min-width: 768px) {
+  /* md */
+}
+@media (min-width: 1024px) {
+  /* lg */
+}
 ```
 
 ### 响应式审查清单
@@ -425,7 +454,7 @@ button.my-btn {
 
 /* ❌ 固定高度的文本容器 */
 .text-box {
-  height: 100px;  /* 文字可能溢出 */
+  height: 100px; /* 文字可能溢出 */
 }
 
 /* ✅ 最小高度 */
@@ -435,7 +464,7 @@ button.my-btn {
 
 /* ❌ 小触摸目标 */
 .small-button {
-  padding: 4px 8px;  /* 太小，难以点击 */
+  padding: 4px 8px; /* 太小，难以点击 */
 }
 
 /* ✅ 足够的触摸区域 */
@@ -452,22 +481,22 @@ button.my-btn {
 
 ### 需要检查的特性
 
-| 特性 | 兼容性 | 建议 |
-|------|--------|------|
-| CSS Grid | 现代浏览器 ✅ | IE 需要 Autoprefixer + 测试 |
-| Flexbox | 广泛支持 ✅ | 旧版需要前缀 |
-| CSS Variables | 现代浏览器 ✅ | IE 不支持，需要回退 |
-| `gap` (flexbox) | 较新 ⚠️ | Safari 14.1+ |
-| `:has()` | 较新 ⚠️ | Firefox 121+ |
-| `container queries` | 较新 ⚠️ | 2023 年后的浏览器 |
-| `@layer` | 较新 ⚠️ | 检查目标浏览器 |
+| 特性                | 兼容性        | 建议                        |
+| ------------------- | ------------- | --------------------------- |
+| CSS Grid            | 现代浏览器 ✅ | IE 需要 Autoprefixer + 测试 |
+| Flexbox             | 广泛支持 ✅   | 旧版需要前缀                |
+| CSS Variables       | 现代浏览器 ✅ | IE 不支持，需要回退         |
+| `gap` (flexbox)     | 较新 ⚠️       | Safari 14.1+                |
+| `:has()`            | 较新 ⚠️       | Firefox 121+                |
+| `container queries` | 较新 ⚠️       | 2023 年后的浏览器           |
+| `@layer`            | 较新 ⚠️       | 检查目标浏览器              |
 
 ### 回退策略
 
 ```css
 /* CSS 变量回退 */
 .button {
-  background: #3b82f6;              /* 回退值 */
+  background: #3b82f6; /* 回退值 */
   background: var(--color-primary); /* 现代浏览器 */
 }
 
@@ -540,7 +569,7 @@ module.exports = {
     .content {
       .article {
         .title {
-          color: red;  // 编译为 .page .container .content .article .title
+          color: red; // 编译为 .page .container .content .article .title
         }
       }
     }
@@ -554,7 +583,9 @@ module.exports = {
   }
 
   &__content {
-    p { margin-bottom: 1em; }
+    p {
+      margin-bottom: 1em;
+    }
   }
 }
 ```
@@ -637,13 +668,13 @@ $primary-color: #3b82f6;
 
 ## 工具推荐
 
-| 工具 | 用途 |
-|------|------|
-| [Stylelint](https://stylelint.io/) | CSS 代码检查 |
-| [PurgeCSS](https://purgecss.com/) | 移除未使用 CSS |
-| [Autoprefixer](https://autoprefixer.github.io/) | 自动添加前缀 |
-| [CSS Stats](https://cssstats.com/) | 分析 CSS 统计 |
-| [Can I Use](https://caniuse.com/) | 浏览器兼容性查询 |
+| 工具                                            | 用途             |
+| ----------------------------------------------- | ---------------- |
+| [Stylelint](https://stylelint.io/)              | CSS 代码检查     |
+| [PurgeCSS](https://purgecss.com/)               | 移除未使用 CSS   |
+| [Autoprefixer](https://autoprefixer.github.io/) | 自动添加前缀     |
+| [CSS Stats](https://cssstats.com/)              | 分析 CSS 统计    |
+| [Can I Use](https://caniuse.com/)               | 浏览器兼容性查询 |
 
 ---
 

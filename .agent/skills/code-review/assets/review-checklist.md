@@ -70,38 +70,38 @@ Quick reference checklist for code reviews.
 
 ## Severity Labels
 
-| Label | Meaning | Action |
-|-------|---------|--------|
-| 🔴 `[blocking]` | Must fix | Block merge |
-| 🟡 `[important]` | Should fix | Discuss if disagree |
-| 🟢 `[nit]` | Nice to have | Non-blocking |
-| 💡 `[suggestion]` | Alternative | Consider |
-| ❓ `[question]` | Need clarity | Respond |
-| 🎉 `[praise]` | Good work | Celebrate! |
+| Label             | Meaning      | Action              |
+| ----------------- | ------------ | ------------------- |
+| 🔴 `[blocking]`   | Must fix     | Block merge         |
+| 🟡 `[important]`  | Should fix   | Discuss if disagree |
+| 🟢 `[nit]`        | Nice to have | Non-blocking        |
+| 💡 `[suggestion]` | Alternative  | Consider            |
+| ❓ `[question]`   | Need clarity | Respond             |
+| 🎉 `[praise]`     | Good work    | Celebrate!          |
 
 ---
 
 ## Decision Matrix
 
-| Situation | Decision |
-|-----------|----------|
-| Critical security issue | 🔴 Block, fix immediately |
-| Breaking change without migration | 🔴 Block |
-| Missing error handling | 🟡 Should fix |
-| No tests for new code | 🟡 Should fix |
-| Style preference | 🟢 Non-blocking |
-| Minor naming improvement | 🟢 Non-blocking |
-| Clever but working code | 💡 Suggest simpler |
+| Situation                         | Decision                  |
+| --------------------------------- | ------------------------- |
+| Critical security issue           | 🔴 Block, fix immediately |
+| Breaking change without migration | 🔴 Block                  |
+| Missing error handling            | 🟡 Should fix             |
+| No tests for new code             | 🟡 Should fix             |
+| Style preference                  | 🟢 Non-blocking           |
+| Minor naming improvement          | 🟢 Non-blocking           |
+| Clever but working code           | 💡 Suggest simpler        |
 
 ---
 
 ## Time Budget
 
-| PR Size | Target Time |
-|---------|-------------|
-| < 100 lines | 10-15 min |
-| 100-400 lines | 20-40 min |
-| > 400 lines | Ask to split |
+| PR Size       | Target Time  |
+| ------------- | ------------ |
+| < 100 lines   | 10-15 min    |
+| 100-400 lines | 20-40 min    |
+| > 400 lines   | Ask to split |
 
 ---
 
