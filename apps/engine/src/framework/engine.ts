@@ -45,7 +45,7 @@ export class Engine {
       const cached = await this.redis.getProcessedResponse(matchId, action.request_id);
       if (cached) {
         // We trust the Redis cache to contain the valid response structure
-        return cached as {
+        return cached as unknown as {
           status: 'ok';
           result: JsonValue;
           termination?: TerminationResult;
@@ -168,10 +168,16 @@ export class Engine {
       const response = {
         status: 'ok',
         result,
-        termination: termination || undefined,
+        ...(termination ? { termination } : {}),
       } as const;
 
-      await this.redis.markRequestIdProcessed(matchId, action.request_id, response);
+      // Type assertion needed because response is inferred as specific object but markRequestIdProcessed takes JsonValue
+      // and optional properties (termination) can be problematic with some JsonValue definitions or strict checks
+      await this.redis.markRequestIdProcessed(
+        matchId,
+        action.request_id,
+        response as unknown as JsonValue,
+      );
 
       return response;
     } finally {
