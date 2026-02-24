@@ -412,8 +412,8 @@ describeBench('Agent battle bench', () => {
     console.log('result summary:', Object.fromEntries(reasons.entries()));
 
     expect(results).toHaveLength(BENCH_MATCH_COUNT);
-    expect(results.every((result) => result.reason.length > 0)).toBe(true);
-    expect(results.some((result) => result.winner === 'agent-1')).toBe(true);
+    expect(results.every((result) => result.winner === 'agent-1')).toBe(true);
+    expect(results.every((result) => result.reason === 'Secret leaked')).toBe(true);
   }, 120_000);
 
   it('supports reconnect and resume during a match', async () => {
@@ -422,6 +422,7 @@ describeBench('Agent battle bench', () => {
       reconnectBeforeGuess: true,
     });
 
+    expect(result.winner).toBe('agent-1');
     expect(result.reason).toBe('Secret leaked');
     expect(result.reconnectCount).toBe(1);
   }, 60_000);
