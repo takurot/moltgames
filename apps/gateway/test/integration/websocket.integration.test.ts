@@ -299,6 +299,86 @@ describe('Gateway WebSocket integration', () => {
     secondSocket.close();
   });
 
+  it('closes previous socket when same agent reconnects with a new connect token', async () => {
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => []),
+      callTool: vi.fn(
+        async (_matchId, request): Promise<{ request_id: string; status: 'ok'; result: {} }> => ({
+          request_id: request.request_id,
+          status: 'ok',
+          result: {},
+        }),
+      ),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const issueFirstTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-dup', agentId: 'agent-dup' },
+    });
+    const { connectToken: firstToken } = issueFirstTokenResponse.json();
+
+    const firstSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(firstToken)}`,
+      'moltgame.v1',
+    );
+    const firstCollector = new MessageCollector(firstSocket);
+    await waitForOpen(firstSocket);
+    await firstCollector.waitFor(isSessionReady);
+    await firstCollector.waitFor(isToolsList);
+
+    const firstSocketClosed = waitForClose(firstSocket);
+
+    const issueSecondTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-dup', agentId: 'agent-dup' },
+    });
+    const { connectToken: secondToken } = issueSecondTokenResponse.json();
+
+    const secondSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(secondToken)}`,
+      'moltgame.v1',
+    );
+    const secondCollector = new MessageCollector(secondSocket);
+    await waitForOpen(secondSocket);
+    await secondCollector.waitFor(isSessionReady);
+    await secondCollector.waitFor(isToolsList);
+
+    expect(await firstSocketClosed).toBe(1012);
+
+    secondSocket.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-second',
+        args: { content: 'hello from second socket' },
+      }),
+    );
+
+    const secondResponse = await secondCollector.waitFor(isToolCallResponse);
+    expect(secondResponse.request_id).toBe('req-second');
+    expect(secondResponse.status).toBe('ok');
+    expect(engineClient.callTool).toHaveBeenCalledTimes(1);
+
+    secondSocket.close();
+  });
+
   it('rejects unsupported websocket protocol', async () => {
     const engineClient: GatewayEngineClient = {
       getTools: vi.fn(async () => []),

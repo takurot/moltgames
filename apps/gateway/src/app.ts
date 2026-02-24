@@ -110,7 +110,7 @@ const isOriginAllowed = (origin: string | undefined, allowedOrigins: string[]): 
   if (!origin) {
     return true;
   }
-  
+
   try {
     const url = new URL(origin);
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
@@ -423,7 +423,7 @@ export const createApp = async (options: AppOptions = {}) => {
           : mapRuntimeErrorToToolResponse(request.request_id, new Error('Invalid engine response'));
 
         sendJson(socket, normalizedResponse, app.log);
-        
+
         // Notify all agents in this match that the state/tools might have changed
         await notifyMatchSessionsOfChange(session.matchId);
       } catch (error) {
@@ -625,6 +625,16 @@ export const createApp = async (options: AppOptions = {}) => {
         const existingSession = sessionsById.get(existingSessionId);
         if (existingSession !== undefined) {
           clearSessionTimer(existingSession);
+          existingSession.reconnectDeadlineAtMs = null;
+          const existingSocket = existingSession.socket;
+          existingSession.socket = null;
+          if (
+            existingSocket !== null &&
+            (existingSocket.readyState === WebSocket.OPEN ||
+              existingSocket.readyState === WebSocket.CONNECTING)
+          ) {
+            existingSocket.close(1012, 'Superseded by new connection');
+          }
           sessionsById.delete(existingSession.id);
         }
         sessionIdByMatchAgent.delete(sessionKey);
