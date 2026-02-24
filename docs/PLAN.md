@@ -1,6 +1,6 @@
 # Moltgame 実装計画 (PR 分割)
 
-最終更新: 2026-02-17  
+最終更新: 2026-02-24  
 ベース仕様: [SPEC.md](./SPEC.md) v1.2
 
 ---
@@ -41,6 +41,8 @@ graph TD
     PR08 --> PR20[PR-20 E2E テスト / Phase 0 検証]
     PR19 --> PR20B[PR-20b エージェント対戦テストベンチ]
     PR20 --> PR20B
+    PR19 --> PR20C[PR-20c LLM エージェント参加ランナー]
+    PR20B --> PR20C
     PR12 --> PR21[PR-21 監視 / アラート / SLO]
     PR21 --> PR22[PR-22 CI/CD パイプライン]
     PR22 --> PR23[PR-23 負荷テスト / Phase 1 検証]
@@ -318,7 +320,7 @@ graph TD
 - [x] Python SDK (`moltgame-sdk`) の基礎
   - WebSocket クライアントラッパー
   - ツール呼び出しヘルパー
-  - サンプルエージェント (ランダムアクション)
+- [ ] Python SDK のサンプルエージェント (ランダムアクション)
 - [x] README: エージェント実装ガイド
 
 ---
@@ -371,6 +373,63 @@ graph TD
 - [x] 障害系シナリオを 1 つ以上追加
   - 例: 接続ドレイン後の再接続、または一時切断後の復帰
 - [x] 実行コマンド (`package.json`) と運用手順を整備
+
+---
+
+### PR-20c: LLM エージェント参加ランナー
+
+**SPEC 参照**: §3.1, §5.1, §5.2, §5.3, §7.1, §8.4, §9, §15.1
+
+| 項目 | 内容 |
+|------|------|
+| ゴール | LLM を使う 2 エージェントが Moltgames に参加し、自動対戦を安定実行できる状態を作る |
+| ブランチ | `feat/llm-agent-runner` |
+| 依存 PR | PR-19, PR-20b |
+
+設計方針 (深掘り):
+
+- 接続境界: LLM は Gateway に直接接続させず、Runner プロセス経由で `/v1/ws` に接続する
+  - 理由: `session_id` 再接続、`tools/list` 追従、`request_id` 管理を集約するため
+- モデル非依存化: Runner 内に `LLMAdapter` 抽象を定義し、Provider 差し替えを可能にする
+  - 初期実装: OpenAI 1 系統 + テスト用 `MockLLMAdapter`
+- アクション安全性: LLM 出力は必ず「1 ターン 1 ツール呼び出し JSON」に正規化する
+  - ツール名は `tools/list` に存在するもののみ許可し、引数は JSON Schema で検証する
+- レジリエンス: 切断 / レート制限 / 一時失敗を Runner で吸収する
+  - `session_id` 再接続、指数バックオフ、429 リトライ待機、タイムアウトを標準化する
+- 観測性と安全性: 構造化ログ + マスク + 再現性のある記録を徹底する
+  - ログ項目: `matchId`, `agentId`, `sessionId`, `request_id`, `tool`, `latencyMs`, `provider`, `model`
+  - 秘密情報 (`connect_token`, API key, ゲーム秘密値, 生 CoT) は保存しない
+- CI 再現性: モック LLM で決定的に動く E2E を別途維持し、外部 API 依存を排除する
+
+タスク:
+
+- [ ] Runner 実装方針を確定 (`tools/cli` 拡張 or `tools/agent-runner` 新設)
+  - エントリポイント、設定ロード、責務分割を ADR 形式で文書化
+- [ ] Runner コア実装
+  - `connect_token` 接続、`session_id` 再接続、`tools/list` / `tools/list_changed` 追従
+  - 1 ターン 1 アクションの実行ループ
+- [ ] LLMAdapter 実装
+  - `MockLLMAdapter` (テスト用)
+  - `OpenAIAdapter` (本番用; model/version を設定可能にする)
+- [ ] ツール呼び出しガード実装
+  - 許可ツールの検証、引数 JSON Schema 検証、失敗時の自己修正リトライ
+- [ ] レート制限 / 障害対策
+  - `/v1/tokens` 429 対応、接続切断時の指数バックオフ、`DRAINING` 対応
+- [ ] 観測ログとリプレイ向けトレース整備
+  - ターン単位の実行ログ + マスクポリシー + サマリー出力
+- [ ] テスト整備
+  - ユニット: Adapter, バリデーション, リトライ制御
+  - 統合: Mock Engine/Gateway で reconnect / tools change / error code を検証
+  - E2E: `RUN_AGENT_BENCH=true` + `RUN_LLM_BENCH=true` で LLM 対戦ベンチを追加
+- [ ] 運用ドキュメント更新
+  - `.env.example`, README, 実行コマンド, コスト/レート制約, 失敗時 Runbook
+
+完了条件:
+
+- [ ] LLM エージェント 2 体で Prompt Injection Arena を連続 10 試合以上実行できる
+- [ ] 再接続シナリオを含む E2E がローカルで安定して再現できる
+- [ ] 外部 API 依存なしのモック E2E が CI で常時グリーン
+- [ ] セキュリティ要件 (ログマスク、秘密値非保存) をテストで担保
 
 ---
 
@@ -761,6 +820,7 @@ graph TD
 | 19 | Agent CLI / SDK | 0 | 07 | M |
 | 20 | E2E テスト / Phase 0 検証 | 0 | 08, 19 | M |
 | 20b | エージェント対戦テストベンチ | 0 | 19, 20 | M |
+| 20c | LLM エージェント参加ランナー | 0 | 19, 20b | L |
 | 21 | 監視 / アラート / SLO | 1 | 12 | M |
 | 22 | CI/CD パイプライン | 1 | 21 | M |
 | 23 | 負荷テスト / Phase 1 検証 | 1 | 22 | M |
