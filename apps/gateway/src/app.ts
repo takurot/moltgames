@@ -106,9 +106,19 @@ const normalizeOrigins = (origins: string[]): string[] =>
   origins.map((origin) => origin.trim()).filter((origin) => origin.length > 0);
 
 const isOriginAllowed = (origin: string | undefined, allowedOrigins: string[]): boolean => {
-  if (!origin || /localhost|127\.0\.0\.1/.test(origin)) {
+  if (!origin) {
     return true;
   }
+
+  try {
+    const url = new URL(origin);
+    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
   return allowedOrigins.includes(origin);
 };
 
@@ -393,6 +403,21 @@ export const createApp = async (options: AppOptions = {}) => {
         const request = parseToolCallRequest(payload);
         requestId = request.request_id;
 
+        const isToolAvailable = session.tools.some((tool) => tool.name === request.tool);
+        if (!isToolAvailable) {
+          const response: ToolCallResponse = {
+            request_id: request.request_id,
+            status: 'error',
+            error: {
+              code: 'INVALID_REQUEST',
+              message: 'Tool is not available for this session',
+              retryable: false,
+            },
+          };
+          sendJson(socket, response, app.log);
+          return;
+        }
+
         const response = await engineClient.callTool(
           session.matchId,
           request as {
@@ -413,8 +438,12 @@ export const createApp = async (options: AppOptions = {}) => {
           (s) => s.matchId === session.matchId,
         );
 
-        if ('termination' in response && response.termination && response.termination.ended) {
-          const termination = response.termination;
+        if (
+          normalizedResponse.status === 'ok' &&
+          normalizedResponse.termination &&
+          normalizedResponse.termination.ended
+        ) {
+          const termination = normalizedResponse.termination;
           for (const s of matchSessions) {
             sendJson(
               s.socket,
@@ -629,6 +658,16 @@ export const createApp = async (options: AppOptions = {}) => {
         const existingSession = sessionsById.get(existingSessionId);
         if (existingSession !== undefined) {
           clearSessionTimer(existingSession);
+          existingSession.reconnectDeadlineAtMs = null;
+          const existingSocket = existingSession.socket;
+          existingSession.socket = null;
+          if (
+            existingSocket !== null &&
+            (existingSocket.readyState === WebSocket.OPEN ||
+              existingSocket.readyState === WebSocket.CONNECTING)
+          ) {
+            existingSocket.close(1012, 'Superseded by new connection');
+          }
           sessionsById.delete(existingSession.id);
         }
         sessionIdByMatchAgent.delete(sessionKey);

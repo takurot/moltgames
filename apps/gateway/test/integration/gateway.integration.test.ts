@@ -73,6 +73,18 @@ describe('Gateway Integration Tests', () => {
     expect(response.statusCode).toBe(500);
   });
 
+  it('CORS: Blocks origins that only contain localhost as a substring', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/healthz',
+      headers: {
+        origin: 'https://localhost.evil.com',
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+  });
+
   it('Rate Limit: Blocks after 5 requests', async () => {
     const app2 = await createApp({ redis: new RedisMock() as unknown as Redis });
     await app2.ready();
