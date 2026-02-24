@@ -1,10 +1,44 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import axios from 'axios';
+import { describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8080';
 const GATEWAY_WS_URL = process.env.GATEWAY_WS_URL || 'ws://localhost:8080/v1/ws';
 const ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:8081';
+
+const requestJson = async (params: {
+  url: string;
+  method: 'GET' | 'POST';
+  body?: unknown;
+  headers?: Record<string, string>;
+}): Promise<{ status: number; data: unknown }> => {
+  const response = await fetch(params.url, {
+    method: params.method,
+    headers: {
+      ...(params.body ? { 'content-type': 'application/json' } : {}),
+      ...params.headers,
+    },
+    body: params.body === undefined ? undefined : JSON.stringify(params.body),
+  });
+
+  const text = await response.text();
+  let data: unknown = null;
+
+  if (text.length > 0) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `HTTP ${response.status} ${params.method} ${params.url}: ${JSON.stringify(data)}`,
+    );
+  }
+
+  return { status: response.status, data };
+};
 
 // Helper to wait for a specific condition
 const poll = async (fn: () => Promise<boolean>, timeout = 10000, interval = 500) => {
@@ -23,43 +57,65 @@ const poll = async (fn: () => Promise<boolean>, timeout = 10000, interval = 500)
 describe('Phase 0 E2E Verification', () => {
   it('completes a full match flow in Prompt Injection Arena', async () => {
     // 1. Check health
-    const gatewayHealth = await axios.get(`${GATEWAY_URL}/healthz`);
+    const gatewayHealth = await requestJson({
+      url: `${GATEWAY_URL}/healthz`,
+      method: 'GET',
+    });
     expect(gatewayHealth.status).toBe(200);
 
-    const engineHealth = await axios.get(`${ENGINE_URL}/healthz`);
+    const engineHealth = await requestJson({
+      url: `${ENGINE_URL}/healthz`,
+      method: 'GET',
+    });
     expect(engineHealth.status).toBe(200);
 
     // 2. Create a match
     const matchId = `e2e-match-${Date.now()}`;
-    await axios.post(`${ENGINE_URL}/matches/${matchId}/start`, {
-      gameId: 'prompt-injection-arena',
-      seed: 12345,
+    await requestJson({
+      url: `${ENGINE_URL}/matches/${matchId}/start`,
+      method: 'POST',
+      body: {
+        gameId: 'prompt-injection-arena',
+        seed: 12345,
+      },
     });
 
     // 3. Issue tokens for 2 agents
-    const token1Response = await axios.post(
-      `${GATEWAY_URL}/v1/tokens`,
-      {
+    const token1Response = await requestJson({
+      url: `${GATEWAY_URL}/v1/tokens`,
+      method: 'POST',
+      body: {
         matchId,
         agentId: 'agent-1',
       },
-      {
-        headers: { Authorization: 'Bearer valid-token' }, // Mock auth
-      },
-    );
-    const token1 = token1Response.data.connectToken;
+      headers: { Authorization: 'Bearer valid-token' }, // Mock auth
+    });
+    if (
+      typeof token1Response.data !== 'object' ||
+      token1Response.data === null ||
+      typeof (token1Response.data as { connectToken?: unknown }).connectToken !== 'string'
+    ) {
+      throw new Error('Token response for agent-1 did not include connectToken');
+    }
+    const token1 = (token1Response.data as { connectToken: string }).connectToken;
 
-    const token2Response = await axios.post(
-      `${GATEWAY_URL}/v1/tokens`,
-      {
+    const token2Response = await requestJson({
+      url: `${GATEWAY_URL}/v1/tokens`,
+      method: 'POST',
+      body: {
         matchId,
         agentId: 'agent-2',
       },
-      {
-        headers: { Authorization: 'Bearer valid-token' },
-      },
-    );
-    const token2 = token2Response.data.connectToken;
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+    if (
+      typeof token2Response.data !== 'object' ||
+      token2Response.data === null ||
+      typeof (token2Response.data as { connectToken?: unknown }).connectToken !== 'string'
+    ) {
+      throw new Error('Token response for agent-2 did not include connectToken');
+    }
+    const token2 = (token2Response.data as { connectToken: string }).connectToken;
 
     // 4. Connect agents via WebSocket
     const agent1 = new WebSocket(`${GATEWAY_WS_URL}?connect_token=${token1}`, 'moltgame.v1');

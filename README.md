@@ -50,6 +50,28 @@ pnpm test:integration
 pnpm build
 ```
 
+## エージェント対戦テストベンチ
+
+2 つのエージェントを同一マッチに参加させ、複数試合を連続実行するベンチを用意しています。
+
+1. 依存サービスを起動
+
+```bash
+docker compose up --build -d
+```
+
+2. ベンチ実行
+
+```bash
+pnpm test:bench:agents
+```
+
+オプション環境変数:
+
+- `BENCH_MATCH_COUNT` (デフォルト: `3`) - 実行試合数
+- `GATEWAY_URL` / `GATEWAY_WS_URL` / `ENGINE_URL` - 接続先上書き
+- `BENCH_AUTH_TOKEN` (デフォルト: `valid-token`) - `POST /v1/tokens` 用トークン
+
 ## CI 品質ゲート
 
 GitHub Actions で以下を必須チェックとする。

@@ -14,6 +14,9 @@ importers:
       '@types/node':
         specifier: ^22.13.8
         version: 22.19.11
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.24.0
         version: 8.56.0(@typescript-eslint/parser@8.56.0(eslint@9.39.2)(typescript@5.9.3))(eslint@9.39.2)(typescript@5.9.3)
@@ -41,6 +44,9 @@ importers:
       vitest:
         specifier: ^3.0.5
         version: 3.2.4(@types/node@22.19.11)(yaml@2.8.2)
+      ws:
+        specifier: ^8.19.0
+        version: 8.19.0
 
   apps/engine:
     dependencies:
