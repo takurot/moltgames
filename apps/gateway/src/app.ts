@@ -370,6 +370,11 @@ export const createApp = async (options: AppOptions = {}) => {
     }
   };
 
+  const notifyMatchSessionsOfChange = async (matchId: string): Promise<void> => {
+    const sessions = Array.from(sessionsById.values()).filter((s) => s.matchId === matchId);
+    await Promise.all(sessions.map((s) => refreshToolsAndNotify(s)));
+  };
+
   const bindSocketHandlers = (session: AgentSession): void => {
     const socket = session.socket;
     if (socket === null) {
@@ -456,8 +461,7 @@ export const createApp = async (options: AppOptions = {}) => {
             );
           }
         } else {
-          // Refresh tools for everyone in the match
-          await Promise.all(matchSessions.map((s) => refreshToolsAndNotify(s)));
+          await notifyMatchSessionsOfChange(session.matchId);
         }
       } catch (error) {
         if (error instanceof Error && error.message === 'Invalid MCP tool call request') {
