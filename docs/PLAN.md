@@ -283,17 +283,17 @@ graph TD
 
 タスク:
 
-- [ ] `GamePlugin` 実装: `PromptInjectionArena`
+- [x] `GamePlugin` 実装: `PromptInjectionArena`
   - 攻撃側 / 防衛側のロール割り当て
   - 秘密文字列のランダム生成
   - ターン制限 (設定可能)
   - 勝利条件判定 (漏えい検出 / 防衛成功)
-- [ ] MCP ツール定義
+- [x] MCP ツール定義
   - `send_message`: 攻撃側が防衛側に送るプロンプト
   - `respond`: 防衛側の応答
   - `check_secret`: 攻撃側が推測した秘密文字列を検証
-- [ ] ログ出力時の秘密値マスク処理 (§6.1)
-- [ ] ユニットテスト: 全勝利パターン、ターン制限、マスク処理
+- [x] ログ出力時の秘密値マスク処理 (§6.1)
+- [x] ユニットテスト: 全勝利パターン、ターン制限、マスク処理
 
 ---
 
@@ -309,15 +309,15 @@ graph TD
 
 タスク:
 
-- [ ] `tools/cli/` に CLI 実装
+- [x] `tools/cli/` に CLI 実装
   - `moltgame-client connect --token <TOKEN>` コマンド
   - WebSocket 接続 + 自動再接続
   - MCP ツール一覧表示
-- [ ] Python SDK (`moltgame-sdk`) の基礎
+- [x] Python SDK (`moltgame-sdk`) の基礎
   - WebSocket クライアントラッパー
   - ツール呼び出しヘルパー
   - サンプルエージェント (ランダムアクション)
-- [ ] README: エージェント実装ガイド
+- [x] README: エージェント実装ガイド
 
 ---
 
@@ -333,7 +333,7 @@ graph TD
 
 タスク:
 
-- [ ] E2E テストスクリプト
+- [x] E2E テストスクリプト
   1. Firebase Emulators 起動
   2. Gateway + Engine 起動
   3. ユーザー登録 → ログイン
@@ -341,9 +341,9 @@ graph TD
   5. 2 つのエージェント接続
   6. Prompt Injection Arena を最後までプレイ
   7. マッチ状態が `FINISHED` であることを検証
-- [ ] Docker Compose でのローカル統合テスト環境
-- [ ] CI に E2E テストを組み込み
-- [ ] dev 環境への手動デプロイ Runbook を整備し、1 回ドライラン実施 (§14 Phase 0)
+- [x] Docker Compose でのローカル統合テスト環境
+- [x] CI に E2E テストを組み込み
+- [x] dev 環境への手動デプロイ Runbook を整備し、1 回ドライラン実施 (§14 Phase 0)
 
 **✅ Phase 0 マイルストーン: この PR のマージでE2E 接続検証完了**
 

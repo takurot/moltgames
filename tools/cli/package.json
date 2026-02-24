@@ -5,8 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "moltgame-client": "./dist/index.js"
+  },
   "dependencies": {
-    "@moltgames/mcp-protocol": "workspace:*"
+    "@moltgames/mcp-protocol": "workspace:*",
+    "commander": "^14.0.3",
+    "ws": "^8.19.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -15,5 +20,8 @@
     "test:unit": "vitest run --passWithNoTests test/unit",
     "test:integration": "vitest run --passWithNoTests test/integration",
     "test:e2e": "vitest run --passWithNoTests test/e2e"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

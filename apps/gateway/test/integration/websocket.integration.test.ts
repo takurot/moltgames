@@ -299,9 +299,96 @@ describe('Gateway WebSocket integration', () => {
     secondSocket.close();
   });
 
+  it('rejects tool calls that are not in the current session tool list', async () => {
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a prompt',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-allowed',
+        status: 'ok',
+        result: {},
+      })),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-tool-check', agentId: 'agent-1' },
+    });
+    const { connectToken } = issueTokenResponse.json();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(connectToken)}`,
+      'moltgame.v1',
+    );
+    const collector = new MessageCollector(socket);
+    await waitForOpen(socket);
+    await collector.waitFor(isSessionReady);
+    await collector.waitFor(isToolsList);
+
+    socket.send(
+      JSON.stringify({
+        tool: 'respond',
+        request_id: 'req-blocked',
+        args: { content: 'I should be rejected' },
+      }),
+    );
+
+    const blockedResponse = await collector.waitFor(
+      (
+        value,
+      ): value is {
+        request_id: string;
+        status: 'error';
+        error: { code: string; message: string; retryable: boolean };
+      } =>
+        typeof value === 'object' &&
+        value !== null &&
+        (value as Record<string, unknown>).request_id === 'req-blocked' &&
+        (value as Record<string, unknown>).status === 'error' &&
+        typeof (value as Record<string, unknown>).error === 'object' &&
+        (value as Record<string, unknown>).error !== null &&
+        ((value as Record<string, unknown>).error as Record<string, unknown>).code ===
+          'INVALID_REQUEST',
+    );
+
+    expect(blockedResponse.error.message).toContain('Tool is not available');
+    expect(engineClient.callTool).not.toHaveBeenCalled();
+
+    socket.close();
+  });
+
   it('closes previous socket when same agent reconnects with a new connect token', async () => {
     const engineClient: GatewayEngineClient = {
-      getTools: vi.fn(async () => []),
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a prompt',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
       callTool: vi.fn(
         async (_matchId, request): Promise<{ request_id: string; status: 'ok'; result: {} }> => ({
           request_id: request.request_id,
