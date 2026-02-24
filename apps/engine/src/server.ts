@@ -87,7 +87,7 @@ export const createServer = async () => {
     },
   );
 
-  fastify.get<{ Params: { matchId: string } }>(
+  fastify.get<{ Params: { matchId: string }; Querystring: { agentId: string } }>(
     '/matches/:matchId/tools',
     {
       schema: {
@@ -99,13 +99,21 @@ export const createServer = async () => {
             matchId: { type: 'string', minLength: 1 },
           },
         },
+        querystring: {
+          type: 'object',
+          required: ['agentId'],
+          properties: {
+            agentId: { type: 'string', minLength: 1 },
+          },
+        },
       },
     },
     async (request, reply) => {
       const { matchId } = request.params;
+      const { agentId } = request.query;
 
       try {
-        const tools = await engine.getAvailableTools(matchId);
+        const tools = await engine.getAvailableTools(matchId, agentId);
         return { status: 'ok', tools };
       } catch (error: unknown) {
         request.log.error(error);

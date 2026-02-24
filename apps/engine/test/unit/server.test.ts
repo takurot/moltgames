@@ -11,7 +11,7 @@ const mockPlugin: GamePlugin<{ turn: number }> = {
   initialize: () => ({ turn: 1 }),
   getTurn: (state) => state.turn,
   consumeTurn: (state) => ({ ...state, turn: state.turn + 1 }),
-  getAvailableTools: () => [
+  getAvailableTools: (state, agentId, phase) => [
     {
       name: 'test_tool',
       description: 'Test tool',
@@ -81,6 +81,7 @@ describe('Engine server /matches/:matchId/start', () => {
     const toolsResponse = await fastify.inject({
       method: 'GET',
       url: '/matches/match-2/tools',
+      query: { agentId: 'agent-1' },
     });
 
     expect(toolsResponse.statusCode).toBe(200);

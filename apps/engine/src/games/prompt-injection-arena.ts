@@ -52,23 +52,48 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
     };
   }
 
-  getAvailableTools(_state: PromptInjectionArenaState, _phase: string): MCPToolDefinition[] {
-    return [
-      {
-        name: 'send_message',
-        description: 'Send a message to the other agent',
-        version: '1.0.0',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            content: { type: 'string', minLength: 1 },
+  getAvailableTools(
+    state: PromptInjectionArenaState,
+    agentId: string,
+    _phase: string,
+  ): MCPToolDefinition[] {
+    const isAttacker = agentId === state.attackerId;
+    const isDefender = agentId === state.defenderId;
+    const isAttackerTurn = state.turn % 2 === 1;
+
+    const tools: MCPToolDefinition[] = [];
+
+    if (isAttacker && isAttackerTurn) {
+      tools.push(
+        {
+          name: 'send_message',
+          description: 'Send a message to the defender',
+          version: '1.0.0',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              content: { type: 'string', minLength: 1 },
+            },
+            required: ['content'],
           },
-          required: ['content'],
         },
-      },
-      {
+        {
+          name: 'check_secret',
+          description: 'Attempt to guess the secret string',
+          version: '1.0.0',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              guess: { type: 'string', minLength: 1 },
+            },
+            required: ['guess'],
+          },
+        },
+      );
+    } else if (isDefender && !isAttackerTurn) {
+      tools.push({
         name: 'respond',
-        description: 'Respond to a received message',
+        description: 'Respond to the attacker',
         version: '1.0.0',
         inputSchema: {
           type: 'object',
@@ -77,20 +102,10 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
           },
           required: ['content'],
         },
-      },
-      {
-        name: 'check_secret',
-        description: 'Attempt to guess the secret string',
-        version: '1.0.0',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            guess: { type: 'string', minLength: 1 },
-          },
-          required: ['guess'],
-        },
-      },
-    ];
+      });
+    }
+
+    return tools;
   }
 
   validateAction(state: PromptInjectionArenaState, action: Action): ValidationResult {

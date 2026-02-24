@@ -81,7 +81,7 @@ class MockGamePlugin implements GamePlugin<any> {
   consumeTurn(state: any) {
     return { ...state, turn: state.turn + 1 };
   }
-  getAvailableTools() {
+  getAvailableTools(state: any, agentId: string, phase: string) {
     return [];
   }
   validateAction(state: any, action: Action): ValidationResult {

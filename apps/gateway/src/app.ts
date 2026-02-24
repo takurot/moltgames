@@ -83,10 +83,9 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
   const client = new EngineClient({ engineUrl: DEFAULT_ENGINE_URL });
 
   return {
-    getTools: async (matchId, _agentId) => {
-      const response = await client.post<{ status: 'ok'; tools: unknown[] }>(
-        `/matches/${encodeURIComponent(matchId)}/tools`,
-        {},
+    getTools: async (matchId, agentId) => {
+      const response = await client.get<{ status: 'ok'; tools: unknown[] }>(
+        `/matches/${encodeURIComponent(matchId)}/tools?agentId=${encodeURIComponent(agentId)}`,
       );
 
       if (
@@ -409,6 +408,21 @@ export const createApp = async (options: AppOptions = {}) => {
         const request = parseToolCallRequest(payload);
         requestId = request.request_id;
 
+        const isToolAvailable = session.tools.some((tool) => tool.name === request.tool);
+        if (!isToolAvailable) {
+          const response: ToolCallResponse = {
+            request_id: request.request_id,
+            status: 'error',
+            error: {
+              code: 'INVALID_REQUEST',
+              message: 'Tool is not available for this session',
+              retryable: false,
+            },
+          };
+          sendJson(socket, response, app.log);
+          return;
+        }
+
         const response = await engineClient.callTool(
           session.matchId,
           request as {
@@ -424,8 +438,31 @@ export const createApp = async (options: AppOptions = {}) => {
 
         sendJson(socket, normalizedResponse, app.log);
 
-        // Notify all agents in this match that the state/tools might have changed
-        await notifyMatchSessionsOfChange(session.matchId);
+        // Notify all agents in this match about turn change or termination
+        const matchSessions = Array.from(sessionsById.values()).filter(
+          (s) => s.matchId === session.matchId,
+        );
+
+        if (
+          normalizedResponse.status === 'ok' &&
+          normalizedResponse.termination &&
+          normalizedResponse.termination.ended
+        ) {
+          const termination = normalizedResponse.termination;
+          for (const s of matchSessions) {
+            sendJson(
+              s.socket,
+              {
+                type: 'match/ended',
+                winner: termination.winner,
+                reason: termination.reason,
+              },
+              app.log,
+            );
+          }
+        } else {
+          await notifyMatchSessionsOfChange(session.matchId);
+        }
       } catch (error) {
         if (error instanceof Error && error.message === 'Invalid MCP tool call request') {
           const response: ToolCallResponse = {
@@ -625,6 +662,16 @@ export const createApp = async (options: AppOptions = {}) => {
         const existingSession = sessionsById.get(existingSessionId);
         if (existingSession !== undefined) {
           clearSessionTimer(existingSession);
+          existingSession.reconnectDeadlineAtMs = null;
+          const existingSocket = existingSession.socket;
+          existingSession.socket = null;
+          if (
+            existingSocket !== null &&
+            (existingSocket.readyState === WebSocket.OPEN ||
+              existingSocket.readyState === WebSocket.CONNECTING)
+          ) {
+            existingSocket.close(1012, 'Superseded by new connection');
+          }
           sessionsById.delete(existingSession.id);
         }
         sessionIdByMatchAgent.delete(sessionKey);

@@ -2,6 +2,17 @@ import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
 
+const DEFAULT_RECONNECT_DELAY_MS = 1000;
+const DEFAULT_RECONNECT_MAX_DELAY_MS = 8000;
+
+const parseReconnectDelayMs = (value: unknown): number => {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+
+  return DEFAULT_RECONNECT_DELAY_MS;
+};
+
 export interface ClientOptions {
   url: string;
   token?: string;
@@ -20,7 +31,7 @@ export class Client extends EventEmitter {
 
   constructor(private options: ClientOptions) {
     super();
-    this.reconnectDelayMs = options.reconnectInitialDelayMs || 1000;
+    this.reconnectDelayMs = options.reconnectInitialDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
     this.sessionId = options.sessionId || null;
   }
 
@@ -45,7 +56,7 @@ export class Client extends EventEmitter {
       socket.on('open', () => {
         console.log('Connected to server');
         this.reconnecting = false;
-        this.reconnectDelayMs = this.options.reconnectInitialDelayMs || 1000;
+        this.reconnectDelayMs = this.options.reconnectInitialDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
         this.emit('connected');
         resolve();
       });
@@ -71,7 +82,9 @@ export class Client extends EventEmitter {
 
       socket.on('error', (error) => {
         console.error('WebSocket error:', error);
-        this.emit('error', error);
+        if (this.listenerCount('error') > 0) {
+          this.emit('error', error);
+        }
         reject(error);
       });
     });
@@ -109,7 +122,7 @@ export class Client extends EventEmitter {
         this.close();
         break;
       case 'DRAINING': {
-        const delay = msg.reconnect_after_ms || 1000;
+        const delay = parseReconnectDelayMs(msg.reconnect_after_ms);
         console.log(`Server is draining, reconnecting after ${delay}ms...`);
         this.reconnectDelayMs = delay;
         this.emit('draining', msg);
@@ -134,7 +147,7 @@ export class Client extends EventEmitter {
     setTimeout(() => {
       this.reconnectDelayMs = Math.min(
         this.reconnectDelayMs * 2,
-        this.options.reconnectMaxDelayMs || 8000,
+        this.options.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS,
       );
       this.connect()
         .then(() => {
