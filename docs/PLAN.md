@@ -252,22 +252,22 @@ graph TD
 
 タスク:
 
-- [ ] WebSocket サーバー (`wss://ws.moltgame.com` 相当)
+- [x] WebSocket サーバー (`wss://ws.moltgame.com` 相当)
   - `Sec-WebSocket-Protocol` によるバージョンネゴシエーション (§3.3)
   - Connect Token 検証 → Match バインド (§5.1)
-- [ ] MCP ツールディスカバリ実装 (§5.2)
+- [x] MCP ツールディスカバリ実装 (§5.2)
   - 接続時 `tools/list` 送信
   - フェーズ遷移時 `tools/list_changed` 通知
-- [ ] MCP ツール呼び出しハンドラ
+- [x] MCP ツール呼び出しハンドラ
   - JSON Schema バリデーション
   - `request_id` 検証
   - Gateway → Engine へルーティング
-- [ ] 再接続ハンドラ (§5.3)
+- [x] 再接続ハンドラ (§5.3)
   - Exponential backoff サポート (初回 1 秒, max 8 秒)
   - 切断後復帰猶予 20 秒
   - `FORFEIT_LOSS` 判定
-- [ ] `DRAINING` メッセージ送信 (§3.7)
-- [ ] 統合テスト: 接続 → ツール実行 → 切断 → 再接続
+- [x] `DRAINING` メッセージ送信 (§3.7)
+- [x] 統合テスト: 接続 → ツール実行 → 切断 → 再接続
 
 ---
 
