@@ -7,7 +7,7 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 try:
     from moltgame_sdk import MoltgameClient
@@ -34,13 +34,14 @@ class RandomPromptInjectionAgent(MoltgameClient):
     def __init__(
         self,
         url: str,
-        token: str | None = None,
-        session_id: str | None = None,
-        seed: int | None = None,
+        token: Optional[str] = None,
+        session_id: Optional[str] = None,
+        seed: Optional[int] = None,
     ) -> None:
         super().__init__(url=url, token=token, session_id=session_id)
         self._rng = random.Random(seed)
-        self._pending_request_id: str | None = None
+        self._pending_request_id: Optional[str] = None
+        self._request_seq = 0
 
     async def _handle_message(self, message_str: str) -> None:
         await super()._handle_message(message_str)
@@ -53,15 +54,25 @@ class RandomPromptInjectionAgent(MoltgameClient):
         if not isinstance(message, dict):
             return
 
+        msg_type = message.get("type")
+        if msg_type in ("session/ready", "session/resumed"):
+            # Drop in-flight state on new/resumed sessions to avoid deadlock after reconnect.
+            self._pending_request_id = None
+            session_id = message.get("session_id")
+            if isinstance(session_id, str):
+                self.session_id = session_id
+
         request_id = message.get("request_id")
+        completed_pending = False
         if (
             message.get("status") in ("ok", "error")
             and isinstance(request_id, str)
             and request_id == self._pending_request_id
         ):
             self._pending_request_id = None
+            completed_pending = True
 
-        if message.get("type") in ("tools/list", "tools/list_changed"):
+        if msg_type in ("tools/list", "tools/list_changed") or completed_pending:
             await self._maybe_take_action()
 
     async def _maybe_take_action(self) -> None:
@@ -79,7 +90,8 @@ class RandomPromptInjectionAgent(MoltgameClient):
 
         tool_name = self._rng.choice(tool_names)
         args = self._build_args(tool_name)
-        request_id = f"py-random-{self._rng.randint(10_000, 999_999)}"
+        self._request_seq += 1
+        request_id = f"py-random-{self._request_seq}"
         self._pending_request_id = request_id
 
         logging.info("calling tool=%s request_id=%s args=%s", tool_name, request_id, args)
