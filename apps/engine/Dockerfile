@@ -23,6 +23,7 @@ RUN pnpm install --frozen-lockfile
 # Build the project and its dependencies
 COPY --from=builder /app/out/full/ .
 COPY turbo.json turbo.json
+COPY tsconfig.base.json tsconfig.base.json
 
 # Build only the engine app
 RUN pnpm turbo run build --filter=@moltgames/engine...
