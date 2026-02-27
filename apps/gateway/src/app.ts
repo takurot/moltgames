@@ -225,9 +225,14 @@ const normalizeRawDataToText = (rawData: RawData): string => {
 };
 
 export const createApp = async (options: AppOptions = {}) => {
+  const secret = process.env.CONNECT_TOKEN_SECRET;
+  if (!secret && process.env.NODE_ENV !== 'test') {
+    throw new Error('CONNECT_TOKEN_SECRET is required');
+  }
+
   const app = Fastify({
     logger: loggerOptions,
-    trustProxy: true,
+    trustProxy: process.env.TRUST_PROXY === 'true' || false,
   });
 
   // Middleware
@@ -257,7 +262,11 @@ export const createApp = async (options: AppOptions = {}) => {
     },
   });
 
-  await app.register(websocket);
+  await app.register(websocket, {
+    options: {
+      maxPayload: 1048576, // 1MB
+    },
+  });
 
   const redisUrl =
     process.env.REDIS_URL ||
@@ -296,7 +305,7 @@ export const createApp = async (options: AppOptions = {}) => {
 
   let verifier = options.verifier;
   if (!verifier) {
-    if (process.env.NODE_ENV === 'test' || process.env.MOCK_AUTH === 'true') {
+    if (process.env.NODE_ENV === 'test' || (process.env.NODE_ENV === 'development' && process.env.MOCK_AUTH === 'true')) {
       verifier = new MockFirebaseVerifier();
     } else {
       if (getApps().length === 0) {
@@ -313,7 +322,7 @@ export const createApp = async (options: AppOptions = {}) => {
 
   const service = new ConnectTokenService({
     store,
-    secret: process.env.CONNECT_TOKEN_SECRET || 'dev-secret',
+    secret: secret || 'dev-secret',
   });
 
   const api = createConnectTokenApi({

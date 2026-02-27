@@ -3,11 +3,14 @@ import pino from 'pino';
 const redactPaths = [
   'req.headers.authorization',
   'req.headers["x-api-key"]',
+  'req.query.connect_token',
   'req.body.token',
   'req.body.password',
   'req.body.email',
   'connectToken',
   '*.connectToken',
+  'connect_token',
+  '*.connect_token',
   'secret',
   '*.secret',
 ];
