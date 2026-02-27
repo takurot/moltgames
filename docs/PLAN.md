@@ -323,7 +323,7 @@ graph TD
 - [x] Python SDK (`moltgame-sdk`) の基礎
   - WebSocket クライアントラッパー
   - ツール呼び出しヘルパー
-- [ ] Python SDK のサンプルエージェント (ランダムアクション)
+- [x] Python SDK のサンプルエージェント (ランダムアクション)
 - [x] README: エージェント実装ガイド
 
 ---
