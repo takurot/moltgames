@@ -39,6 +39,12 @@ pnpm install
 cp .env.example .env.local
 ```
 
+Gateway で最低限必要な環境変数:
+
+- `CONNECT_TOKEN_SECRET`: Connect Token 署名鍵（必須）
+- `TRUST_PROXY`: リバースプロキシ配下で `true` を設定（通常は `false`）
+- `MOCK_AUTH`: `development/test` でのみ利用（本番では `false`）
+
 ## よく使うコマンド
 
 ```bash
