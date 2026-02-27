@@ -216,7 +216,7 @@ export class Runner extends EventEmitter {
           return;
         }
 
-        if (code === 1000 || code === 1001) {
+        if (code === 1000) {
           return;
         }
 
@@ -256,10 +256,7 @@ export class Runner extends EventEmitter {
         .then(() => {
           this.reconnecting = false;
         })
-        .catch((error) => {
-          if (this.listenerCount('error') > 0) {
-            this.emit('error', error);
-          }
+        .catch(() => {
           this.reconnecting = false;
           this.scheduleReconnect();
         });
@@ -376,6 +373,7 @@ export class Runner extends EventEmitter {
       this.socket.send(JSON.stringify(payload));
       this.emit('action/sent', payload);
     } catch (error) {
+      this.activeRequestId = null;
       if (this.listenerCount('error') > 0) {
         this.emit('error', error);
       }
