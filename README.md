@@ -71,6 +71,7 @@ pnpm test:bench:agents
 - `BENCH_MATCH_COUNT` (デフォルト: `3`) - 実行試合数
 - `GATEWAY_URL` / `GATEWAY_WS_URL` / `ENGINE_URL` - 接続先上書き
 - `BENCH_AUTH_TOKEN` (デフォルト: `valid-token`) - `POST /v1/tokens` 用トークン
+- `BENCH_LOG_ACTIONS` (デフォルト: `true`) - ターンごとの行動ログ出力
 
 ### OpenAI ベンチモード
 
