@@ -116,6 +116,7 @@ export class Runner extends EventEmitter {
   private tools: MCPToolDefinition[] = [];
   private sessionId: string | null = null;
   private reconnectDelayMs: number;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnecting = false;
   private closedByClient = false;
   private connectPromise: Promise<void> | null = null;
@@ -150,6 +151,10 @@ export class Runner extends EventEmitter {
   close(): void {
     this.closedByClient = true;
     this.reconnecting = false;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.activeRequestId = null;
     if (this.socket) {
       this.socket.close(1000, 'Runner closing');
@@ -204,6 +209,7 @@ export class Runner extends EventEmitter {
 
       socket.on('close', (code: number, reason: Buffer) => {
         this.socket = null;
+        this.activeRequestId = null;
         this.emit('disconnected', { code, reason: reason.toString('utf-8') });
 
         if (this.closedByClient) {
@@ -236,7 +242,12 @@ export class Runner extends EventEmitter {
 
     this.reconnecting = true;
     const delayMs = this.reconnectDelayMs;
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.closedByClient) {
+        this.reconnecting = false;
+        return;
+      }
       this.reconnectDelayMs = Math.min(
         this.reconnectDelayMs * 2,
         this.options.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS,
@@ -271,6 +282,7 @@ export class Runner extends EventEmitter {
 
     if (type === 'session/ready' && typeof message.session_id === 'string') {
       this.sessionId = message.session_id;
+      this.activeRequestId = null;
       this.emit('session/ready', message);
       return;
     }
@@ -279,6 +291,7 @@ export class Runner extends EventEmitter {
       if (typeof message.session_id === 'string') {
         this.sessionId = message.session_id;
       }
+      this.activeRequestId = null;
       this.emit('session/resumed', message);
       return;
     }

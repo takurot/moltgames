@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPromptInjectionPlanner, Runner } from '../../src/runner.js';
 
 const wsMockState = vi.hoisted(() => ({ instances: [] as unknown[] }));
@@ -88,6 +88,10 @@ const getSocketAt = (index: number): TestSocket => {
 };
 
 describe('Runner', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     wsMockState.instances.length = 0;
     vi.restoreAllMocks();
@@ -155,6 +159,70 @@ describe('Runner', () => {
     await Promise.resolve();
 
     expect(socket.sentPayloads).toHaveLength(2);
+    expect(planner.decide).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reconnect after explicit close even when reconnect timer is pending', async () => {
+    vi.useFakeTimers();
+
+    const runner = new Runner({
+      url: 'ws://localhost:8080/v1/ws',
+      token: 'connect-token',
+      planner: createPromptInjectionPlanner(),
+      reconnectInitialDelayMs: 10,
+      reconnectMaxDelayMs: 20,
+    });
+
+    const connectPromise = runner.connect();
+    const firstSocket = getSocketAt(0);
+    firstSocket.triggerOpen();
+    await connectPromise;
+
+    firstSocket.triggerClose(1012, 'draining');
+    runner.close();
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(wsMockState.instances).toHaveLength(1);
+  });
+
+  it('clears active in-flight request on disconnect so action loop resumes after reconnect', async () => {
+    vi.useFakeTimers();
+
+    const planner = {
+      decide: vi
+        .fn()
+        .mockResolvedValueOnce({ tool: 'send_message', args: { content: 'A' } })
+        .mockResolvedValueOnce({ tool: 'respond', args: { content: 'B' } }),
+    };
+
+    const runner = new Runner({
+      url: 'ws://localhost:8080/v1/ws',
+      token: 'connect-token',
+      planner,
+      reconnectInitialDelayMs: 10,
+      reconnectMaxDelayMs: 20,
+    });
+
+    const connectPromise = runner.connect();
+    const firstSocket = getSocketAt(0);
+    firstSocket.triggerOpen();
+    await connectPromise;
+
+    firstSocket.triggerMessage({ type: 'session/ready', session_id: 'session-1' });
+    firstSocket.triggerMessage({ type: 'tools/list', tools: [{ name: 'send_message' }] });
+    await Promise.resolve();
+    expect(firstSocket.sentPayloads).toHaveLength(1);
+
+    firstSocket.triggerClose(1012, 'network');
+    await vi.advanceTimersByTimeAsync(10);
+
+    const secondSocket = getSocketAt(1);
+    secondSocket.triggerOpen();
+    secondSocket.triggerMessage({ type: 'session/resumed', session_id: 'session-1' });
+    secondSocket.triggerMessage({ type: 'tools/list', tools: [{ name: 'respond' }] });
+    await Promise.resolve();
+
+    expect(secondSocket.sentPayloads).toHaveLength(1);
     expect(planner.decide).toHaveBeenCalledTimes(2);
   });
 });
