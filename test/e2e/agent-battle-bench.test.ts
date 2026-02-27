@@ -16,6 +16,7 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const OPENAI_RESPONSES_URL =
   process.env.OPENAI_RESPONSES_URL || 'https://api.openai.com/v1/responses';
 const OPENAI_MAX_OUTPUT_TOKENS = Number.parseInt(process.env.OPENAI_MAX_OUTPUT_TOKENS || '220', 10);
+const BENCH_LOG_ACTIONS = process.env.BENCH_LOG_ACTIONS !== 'false';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const ACTION_LOOP_LIMIT = 32;
@@ -32,6 +33,7 @@ const DEFENDER_FALLBACK_MESSAGES = [
 ] as const;
 
 type AgentRole = 'attacker' | 'defender';
+type DecisionSource = 'deterministic' | 'openai' | 'fallback';
 
 interface BenchMessage {
   [key: string]: unknown;
@@ -66,6 +68,7 @@ interface MatchRunResult {
   durationMs: number;
   reconnectCount: number;
   steps: number;
+  actionTimeline: ActionTrace[];
 }
 
 interface DialogueTurn {
@@ -77,6 +80,19 @@ interface DialogueTurn {
 interface ToolDecision {
   tool: string;
   args: Record<string, unknown>;
+  source: DecisionSource;
+}
+
+interface ActionTrace {
+  step: number;
+  requestId: string;
+  actorId: string;
+  role: AgentRole;
+  decisionSource: DecisionSource;
+  availableTools: string[];
+  tool: string;
+  argsSummary: unknown;
+  responseSummary: unknown;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -213,6 +229,104 @@ const waitForMessage = async (
   }
 
   return found;
+};
+
+const truncateText = (value: string, maxLength = 180): string => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}...`;
+};
+
+const summarizeValue = (value: unknown, depth = 0): unknown => {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return truncateText(value);
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (depth >= 2) {
+    if (Array.isArray(value)) {
+      return `[array:${value.length}]`;
+    }
+    if (isRecord(value)) {
+      return '[object]';
+    }
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const summarized = value.slice(0, 4).map((item) => summarizeValue(item, depth + 1));
+    if (value.length > 4) {
+      summarized.push(`...(${value.length - 4} more)`);
+    }
+    return summarized;
+  }
+
+  if (isRecord(value)) {
+    const entries = Object.entries(value).slice(0, 8);
+    const next: Record<string, unknown> = {};
+    for (const [key, val] of entries) {
+      next[key] = summarizeValue(val, depth + 1);
+    }
+    if (Object.keys(value).length > 8) {
+      next.__truncated_keys__ = Object.keys(value).length - 8;
+    }
+    return next;
+  }
+
+  return String(value);
+};
+
+const recordAction = (
+  timeline: ActionTrace[],
+  params: {
+    requestId: string;
+    agent: BenchAgent;
+    decisionSource: DecisionSource;
+    availableTools: string[];
+    tool: string;
+    args: Record<string, unknown>;
+    response: BenchMessage;
+  },
+): void => {
+  timeline.push({
+    step: timeline.length + 1,
+    requestId: params.requestId,
+    actorId: params.agent.agentId,
+    role: params.agent.role,
+    decisionSource: params.decisionSource,
+    availableTools: [...params.availableTools],
+    tool: params.tool,
+    argsSummary: summarizeValue(params.args),
+    responseSummary: summarizeValue(params.response),
+  });
+};
+
+const printActionTimeline = (result: MatchRunResult): void => {
+  if (!BENCH_LOG_ACTIONS) {
+    return;
+  }
+
+  console.log(`action timeline (${result.matchId})`);
+  console.table(
+    result.actionTimeline.map((trace) => ({
+      step: trace.step,
+      actor: `${trace.actorId}:${trace.role}`,
+      source: trace.decisionSource,
+      availableTools: trace.availableTools.join(','),
+      tool: trace.tool,
+      args: JSON.stringify(trace.argsSummary),
+      response: JSON.stringify(trace.responseSummary),
+    })),
+  );
 };
 
 const extractTools = (messages: BenchMessage[]): BenchToolDefinition[] => {
@@ -457,6 +571,7 @@ const parseToolDecision = (value: unknown): ToolDecision | null => {
   return {
     tool: value.tool,
     args: { ...value.args },
+    source: 'openai',
   };
 };
 
@@ -475,6 +590,7 @@ const pickFallbackDecision = (params: {
       return {
         tool: 'send_message',
         args: { content },
+        source: 'fallback',
       };
     }
 
@@ -483,6 +599,7 @@ const pickFallbackDecision = (params: {
       return {
         tool: 'check_secret',
         args: { guess: `SECRET-${word}-${params.seed + params.step}` },
+        source: 'fallback',
       };
     }
   }
@@ -493,6 +610,7 @@ const pickFallbackDecision = (params: {
     return {
       tool: 'respond',
       args: { content },
+      source: 'fallback',
     };
   }
 
@@ -500,12 +618,14 @@ const pickFallbackDecision = (params: {
     return {
       tool: '',
       args: {},
+      source: 'fallback',
     };
   }
 
   return {
     tool: params.tools[0].name,
     args: {},
+    source: 'fallback',
   };
 };
 
@@ -538,7 +658,7 @@ const normalizeDecision = (params: {
       });
       return fallback.tool === params.decision.tool
         ? fallback
-        : { tool: params.decision.tool, args };
+        : { tool: params.decision.tool, args, source: params.decision.source };
     }
   }
 
@@ -552,13 +672,14 @@ const normalizeDecision = (params: {
       });
       return fallback.tool === params.decision.tool
         ? fallback
-        : { tool: params.decision.tool, args };
+        : { tool: params.decision.tool, args, source: params.decision.source };
     }
   }
 
   return {
     tool: params.decision.tool,
     args,
+    source: params.decision.source,
   };
 };
 
@@ -653,25 +774,46 @@ const playDeterministicMatch = async (params: {
   attacker: BenchAgent;
   defender: BenchAgent;
   reconnectBeforeGuess: boolean;
+  actionTimeline: ActionTrace[];
 }): Promise<{ steps: number; reconnectCount: number }> => {
   let reconnectCount = 0;
   let attacker = params.attacker;
 
   await waitForTool(attacker, 'send_message');
-  await callTool(
+  const attackerSendRequestId = `req-${params.seed}-attacker-send`;
+  const attackerSendResponse = await callTool(
     attacker,
     'send_message',
     { content: `attacker message for seed ${params.seed}` },
-    `req-${params.seed}-attacker-send`,
+    attackerSendRequestId,
   );
+  recordAction(params.actionTimeline, {
+    requestId: attackerSendRequestId,
+    agent: attacker,
+    decisionSource: 'deterministic',
+    availableTools: extractToolNames(attacker.messages),
+    tool: 'send_message',
+    args: { content: `attacker message for seed ${params.seed}` },
+    response: attackerSendResponse,
+  });
 
   await waitForTool(params.defender, 'respond');
-  await callTool(
+  const defenderRespondRequestId = `req-${params.seed}-defender-respond`;
+  const defenderRespondResponse = await callTool(
     params.defender,
     'respond',
     { content: `defender response for seed ${params.seed}` },
-    `req-${params.seed}-defender-respond`,
+    defenderRespondRequestId,
   );
+  recordAction(params.actionTimeline, {
+    requestId: defenderRespondRequestId,
+    agent: params.defender,
+    decisionSource: 'deterministic',
+    availableTools: extractToolNames(params.defender.messages),
+    tool: 'respond',
+    args: { content: `defender response for seed ${params.seed}` },
+    response: defenderRespondResponse,
+  });
 
   if (params.reconnectBeforeGuess) {
     await closeSocket(attacker.socket);
@@ -685,12 +827,22 @@ const playDeterministicMatch = async (params: {
   }
 
   await waitForTool(attacker, 'check_secret');
-  await callTool(
+  const checkSecretRequestId = `req-${params.seed}-attacker-guess`;
+  const checkSecretResponse = await callTool(
     attacker,
     'check_secret',
     { guess: expectedSecretFromSeed(params.seed) },
-    `req-${params.seed}-attacker-guess`,
+    checkSecretRequestId,
   );
+  recordAction(params.actionTimeline, {
+    requestId: checkSecretRequestId,
+    agent: attacker,
+    decisionSource: 'deterministic',
+    availableTools: extractToolNames(attacker.messages),
+    tool: 'check_secret',
+    args: { guess: expectedSecretFromSeed(params.seed) },
+    response: checkSecretResponse,
+  });
 
   params.attacker.socket = attacker.socket;
   params.attacker.messages = attacker.messages;
@@ -703,6 +855,7 @@ const playOpenAIMatch = async (params: {
   seed: number;
   attacker: BenchAgent;
   defender: BenchAgent;
+  actionTimeline: ActionTrace[];
 }): Promise<number> => {
   const dialogue: DialogueTurn[] = [];
   let steps = 0;
@@ -746,7 +899,16 @@ const playOpenAIMatch = async (params: {
     });
 
     const requestId = `req-${params.seed}-${actingAgent.agentId}-${steps}-${randomUUID().slice(0, 8)}`;
-    await callTool(actingAgent, decision.tool, decision.args, requestId);
+    const response = await callTool(actingAgent, decision.tool, decision.args, requestId);
+    recordAction(params.actionTimeline, {
+      requestId,
+      agent: actingAgent,
+      decisionSource: decision.source,
+      availableTools: tools.map((tool) => tool.name),
+      tool: decision.tool,
+      args: decision.args,
+      response,
+    });
     dialogue.push({
       role: actingAgent.role,
       tool: decision.tool,
@@ -794,6 +956,7 @@ const runSingleMatch = async ({
 
   let reconnectCount = 0;
   let steps = 0;
+  const actionTimeline: ActionTrace[] = [];
 
   try {
     if (mode === 'deterministic') {
@@ -802,6 +965,7 @@ const runSingleMatch = async ({
         attacker,
         defender,
         reconnectBeforeGuess,
+        actionTimeline,
       });
       reconnectCount = deterministic.reconnectCount;
       steps = deterministic.steps;
@@ -810,6 +974,7 @@ const runSingleMatch = async ({
         seed,
         attacker,
         defender,
+        actionTimeline,
       });
     }
 
@@ -830,6 +995,7 @@ const runSingleMatch = async ({
       durationMs: Date.now() - startedAtMs,
       reconnectCount,
       steps,
+      actionTimeline,
     } satisfies MatchRunResult;
   } finally {
     await Promise.allSettled([closeSocket(attacker.socket), closeSocket(defender.socket)]);
@@ -875,10 +1041,12 @@ describeBench('Agent battle bench', () => {
       })),
     );
     console.log('result summary:', Object.fromEntries(reasons.entries()));
+    results.forEach((result) => printActionTimeline(result));
 
     expect(results).toHaveLength(BENCH_MATCH_COUNT);
     expect(results.every((result) => result.winner === 'agent-1')).toBe(true);
     expect(results.every((result) => result.reason === 'Secret leaked')).toBe(true);
+    expect(results.every((result) => result.actionTimeline.length === result.steps)).toBe(true);
   }, 180_000);
 
   it('supports reconnect and resume during a deterministic match', async () => {
@@ -891,6 +1059,7 @@ describeBench('Agent battle bench', () => {
     expect(result.winner).toBe('agent-1');
     expect(result.reason).toBe('Secret leaked');
     expect(result.reconnectCount).toBe(1);
+    printActionTimeline(result);
   }, 60_000);
 });
 
@@ -919,8 +1088,17 @@ describeOpenAIBench('OpenAI agent battle bench', () => {
     );
     console.log('openai model:', OPENAI_MODEL);
     console.log('openai summary:', Object.fromEntries(reasons.entries()));
+    results.forEach((result) => printActionTimeline(result));
 
     expect(results).toHaveLength(OPENAI_BENCH_MATCH_COUNT);
     expect(results.every((result) => result.reason.length > 0)).toBe(true);
+    expect(
+      results.every(
+        (result) =>
+          result.actionTimeline.length === result.steps &&
+          result.actionTimeline.some((trace) => trace.role === 'attacker') &&
+          result.actionTimeline.some((trace) => trace.role === 'defender'),
+      ),
+    ).toBe(true);
   }, 300_000);
 });
