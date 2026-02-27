@@ -72,6 +72,29 @@ pnpm test:bench:agents
 - `GATEWAY_URL` / `GATEWAY_WS_URL` / `ENGINE_URL` - 接続先上書き
 - `BENCH_AUTH_TOKEN` (デフォルト: `valid-token`) - `POST /v1/tokens` 用トークン
 
+### OpenAI ベンチモード
+
+対戦行動の意思決定を OpenAI API で実行するモードです。
+
+1. `OPENAI_API_KEY` を環境変数に設定
+
+```bash
+export OPENAI_API_KEY=...
+```
+
+2. OpenAI ベンチ実行
+
+```bash
+pnpm test:bench:agents:openai
+```
+
+オプション環境変数:
+
+- `OPENAI_MODEL` (デフォルト: `gpt-4.1-mini`)
+- `OPENAI_BENCH_MATCH_COUNT` (デフォルト: `1`)
+- `OPENAI_MAX_OUTPUT_TOKENS` (デフォルト: `220`)
+- `OPENAI_RESPONSES_URL` (デフォルト: `https://api.openai.com/v1/responses`)
+
 ## CI 品質ゲート
 
 GitHub Actions で以下を必須チェックとする。
