@@ -305,7 +305,10 @@ export const createApp = async (options: AppOptions = {}) => {
 
   let verifier = options.verifier;
   if (!verifier) {
-    if (process.env.NODE_ENV === 'test' || (process.env.NODE_ENV === 'development' && process.env.MOCK_AUTH === 'true')) {
+    if (
+      process.env.NODE_ENV === 'test' ||
+      (process.env.NODE_ENV === 'development' && process.env.MOCK_AUTH === 'true')
+    ) {
       verifier = new MockFirebaseVerifier();
     } else {
       if (getApps().length === 0) {
