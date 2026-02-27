@@ -409,7 +409,8 @@ graph TD
 - [x] Runner 実装方針を確定 (`tools/cli` 拡張 or `tools/agent-runner` 新設)
   - ADR: `docs/adr/ADR-0001-llm-agent-runner.md` (`tools/agent-runner` 新設方針)
   - エントリポイント、設定ロード、責務分割を ADR 形式で文書化
-- [ ] Runner コア実装
+- [x] Runner コア実装
+  - 実装: `tools/agent-runner` (接続/再接続、`tools/list` 追従、1ターン1アクションループ)
   - `connect_token` 接続、`session_id` 再接続、`tools/list` / `tools/list_changed` 追従
   - 1 ターン 1 アクションの実行ループ
 - [ ] LLMAdapter 実装
