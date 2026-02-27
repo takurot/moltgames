@@ -6,6 +6,7 @@
     { "path": "./apps/gateway" },
     { "path": "./apps/engine" },
     { "path": "./apps/web" },
-    { "path": "./tools/cli" }
+    { "path": "./tools/cli" },
+    { "path": "./tools/agent-runner" }
   ]
 }
