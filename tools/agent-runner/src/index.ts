@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { createPromptInjectionPlanner, Runner, type RunnerOptions } from './runner.js';
+import { createPromptInjectionPlanner, Runner, type RunnerOptions, type ActionPlanner } from './runner.js';
+import { LLMActionPlanner, type LLMActionPlannerOptions } from './planners/llm-planner.js';
+import { OpenAIAdapter } from './adapters/llm-adapter.js';
 
 const program = new Command();
 
@@ -13,6 +15,9 @@ interface RunCommandOptions {
   sessionId?: string;
   reconnectInitialMs: string;
   reconnectMaxMs: string;
+  llmProvider?: string;
+  model?: string;
+  systemPrompt?: string;
 }
 
 program
@@ -23,16 +28,37 @@ program
   .option('-s, --session-id <sessionId>', 'Resume existing session')
   .option('--reconnect-initial-ms <ms>', 'Initial reconnect delay in milliseconds', '1000')
   .option('--reconnect-max-ms <ms>', 'Maximum reconnect delay in milliseconds', '8000')
+  .option('--llm-provider <provider>', 'LLM Provider to use (e.g. "openai")')
+  .option('--model <model>', 'Model name to use with the provider')
+  .option('--system-prompt <prompt>', 'System prompt to initialize the agent with')
   .action(async (options: RunCommandOptions) => {
     if (!options.token && !options.sessionId) {
       throw new Error('Either --token or --session-id must be provided');
+    }
+
+    let planner: ActionPlanner;
+
+    if (options.llmProvider === 'openai') {
+      const adapterOptions: { model?: string } = {};
+      if (options.model !== undefined) {
+        adapterOptions.model = options.model;
+      }
+      const adapter = new OpenAIAdapter(adapterOptions);
+
+      const plannerOptions: LLMActionPlannerOptions = { adapter };
+      if (options.systemPrompt !== undefined) {
+        plannerOptions.systemPrompt = options.systemPrompt;
+      }
+      planner = new LLMActionPlanner(plannerOptions);
+    } else {
+      planner = createPromptInjectionPlanner();
     }
 
     const runnerOptions: RunnerOptions = {
       url: options.url,
       reconnectInitialDelayMs: Number.parseInt(options.reconnectInitialMs, 10),
       reconnectMaxDelayMs: Number.parseInt(options.reconnectMaxMs, 10),
-      planner: createPromptInjectionPlanner(),
+      planner,
     };
 
     if (options.token !== undefined) {
