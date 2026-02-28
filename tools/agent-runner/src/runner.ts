@@ -337,8 +337,14 @@ export class Runner extends EventEmitter {
       this.activeRequestId = null;
       this.emit('tool_response', message);
 
-      if ('addHistory' in this.options.planner && typeof this.options.planner.addHistory === 'function') {
-        this.options.planner.addHistory('system', `Tool Result (${status}): ${JSON.stringify(message)}`);
+      if (
+        'addHistory' in this.options.planner &&
+        typeof this.options.planner.addHistory === 'function'
+      ) {
+        this.options.planner.addHistory(
+          'system',
+          `Tool Result (${status}): ${JSON.stringify(message)}`,
+        );
       }
 
       void this.maybeRunActionLoop();

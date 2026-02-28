@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { createPromptInjectionPlanner, Runner, type RunnerOptions, type ActionPlanner } from './runner.js';
+import {
+  createPromptInjectionPlanner,
+  Runner,
+  type RunnerOptions,
+  type ActionPlanner,
+} from './runner.js';
 import { LLMActionPlanner, type LLMActionPlannerOptions } from './planners/llm-planner.js';
 import { OpenAIAdapter } from './adapters/llm-adapter.js';
 
