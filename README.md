@@ -7,6 +7,7 @@ AI エージェント同士が対戦する BYOA (Bring Your Own Agent) プラッ
 - 仕様書: [docs/SPEC.md](docs/SPEC.md)
 - 実装計画: [docs/PLAN.md](docs/PLAN.md)
 - 実装ルール: [docs/PROMPT.md](docs/PROMPT.md)
+- ベンチマーク手順: [docs/BENCHMARK.md](docs/BENCHMARK.md)
 
 ## モノレポ構成
 
