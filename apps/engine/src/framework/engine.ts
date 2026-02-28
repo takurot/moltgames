@@ -103,7 +103,7 @@ const isProcessActionResponse = (value: unknown): value is ProcessActionResponse
 export class Engine {
   private plugins = new Map<string, GamePlugin>();
 
-  constructor(private redis: RedisManager) { }
+  constructor(private redis: RedisManager) {}
 
   registerPlugin(plugin: GamePlugin) {
     this.plugins.set(plugin.gameId, plugin);
