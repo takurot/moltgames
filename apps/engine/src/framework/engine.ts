@@ -103,7 +103,7 @@ const isProcessActionResponse = (value: unknown): value is ProcessActionResponse
 export class Engine {
   private plugins = new Map<string, GamePlugin>();
 
-  constructor(private redis: RedisManager) {}
+  constructor(private redis: RedisManager) { }
 
   registerPlugin(plugin: GamePlugin) {
     this.plugins.set(plugin.gameId, plugin);
@@ -315,7 +315,7 @@ export class Engine {
       const currentTurn = parseNonNegativeInt(meta.turn) ?? newTurn;
 
       // 5. Check Termination
-      const termination = plugin.checkTermination(newState);
+      const termination = await plugin.checkTermination(newState);
 
       // 6. Save State
       await this.redis.saveMatchState(matchId, newState);
