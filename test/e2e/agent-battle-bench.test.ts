@@ -429,7 +429,9 @@ const connectAgent = async (params: {
       return false;
     }
 
-    return /429|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|socket hang up/i.test(error.message);
+    return /429|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ETIMEDOUT|EAI_AGAIN|socket hang up|Timed out after/i.test(
+      error.message,
+    );
   };
 
   for (let attempt = 0; attempt <= MAX_WS_CONNECT_RETRIES; attempt += 1) {
