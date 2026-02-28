@@ -5,9 +5,13 @@ import WebSocket from 'ws';
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8080';
 const GATEWAY_WS_URL = process.env.GATEWAY_WS_URL || 'ws://localhost:8080/v1/ws';
 const ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:8081';
+const BENCH_MODE = process.env.BENCH_MODE === 'performance' ? 'performance' : 'smoke';
 const BENCH_AUTH_TOKEN = process.env.BENCH_AUTH_TOKEN || 'valid-token';
 const BENCH_MATCH_COUNT = Number.parseInt(process.env.BENCH_MATCH_COUNT || '3', 10);
-const OPENAI_BENCH_MATCH_COUNT = Number.parseInt(process.env.OPENAI_BENCH_MATCH_COUNT || '1', 10);
+const OPENAI_BENCH_MATCH_COUNT = Number.parseInt(
+  process.env.OPENAI_BENCH_MATCH_COUNT || (BENCH_MODE === 'performance' ? '20' : '1'),
+  10,
+);
 const RUN_AGENT_BENCH = process.env.RUN_AGENT_BENCH === 'true';
 const RUN_OPENAI_BENCH = process.env.RUN_OPENAI_BENCH === 'true';
 
@@ -16,6 +20,14 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const OPENAI_RESPONSES_URL =
   process.env.OPENAI_RESPONSES_URL || 'https://api.openai.com/v1/responses';
 const OPENAI_MAX_OUTPUT_TOKENS = Number.parseInt(process.env.OPENAI_MAX_OUTPUT_TOKENS || '220', 10);
+const OPENAI_INPUT_COST_PER_1M_TOKENS = (() => {
+  const parsed = Number.parseFloat(process.env.OPENAI_INPUT_COST_PER_1M_TOKENS || '0');
+  return Number.isFinite(parsed) ? parsed : 0;
+})();
+const OPENAI_OUTPUT_COST_PER_1M_TOKENS = (() => {
+  const parsed = Number.parseFloat(process.env.OPENAI_OUTPUT_COST_PER_1M_TOKENS || '0');
+  return Number.isFinite(parsed) ? parsed : 0;
+})();
 const BENCH_LOG_ACTIONS = process.env.BENCH_LOG_ACTIONS !== 'false';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -68,7 +80,9 @@ interface MatchRunResult {
   reason: string;
   durationMs: number;
   reconnectCount: number;
+  connectRetryCount: number;
   steps: number;
+  openaiUsage: OpenAIUsageTotals;
   actionTimeline: ActionTrace[];
 }
 
@@ -84,6 +98,28 @@ interface ToolDecision {
   source: DecisionSource;
 }
 
+interface OpenAIUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+}
+
+interface OpenAIUsageTotals extends OpenAIUsage {
+  requests: number;
+}
+
+interface OpenAIDecisionResult {
+  decision: ToolDecision;
+  usage: OpenAIUsage;
+  requested: boolean;
+}
+
+interface ConnectAgentResult {
+  agent: BenchAgent;
+  retryCount: number;
+}
+
 interface ActionTrace {
   step: number;
   requestId: string;
@@ -94,10 +130,114 @@ interface ActionTrace {
   tool: string;
   argsSummary: unknown;
   responseSummary: unknown;
+  decisionDurationMs: number;
+  actionDurationMs: number;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
+
+const toFiniteNumber = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const zeroOpenAIUsage = (): OpenAIUsage => ({
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  cachedInputTokens: 0,
+});
+
+const zeroOpenAIUsageTotals = (): OpenAIUsageTotals => ({
+  requests: 0,
+  ...zeroOpenAIUsage(),
+});
+
+const addOpenAIUsage = (
+  target: OpenAIUsageTotals,
+  usage: OpenAIUsage,
+  requested: boolean,
+): void => {
+  if (requested) {
+    target.requests += 1;
+  }
+  target.inputTokens += usage.inputTokens;
+  target.outputTokens += usage.outputTokens;
+  target.totalTokens += usage.totalTokens;
+  target.cachedInputTokens += usage.cachedInputTokens;
+};
+
+const mergeOpenAIUsage = (
+  left: OpenAIUsageTotals,
+  right: OpenAIUsageTotals,
+): OpenAIUsageTotals => ({
+  requests: left.requests + right.requests,
+  inputTokens: left.inputTokens + right.inputTokens,
+  outputTokens: left.outputTokens + right.outputTokens,
+  totalTokens: left.totalTokens + right.totalTokens,
+  cachedInputTokens: left.cachedInputTokens + right.cachedInputTokens,
+});
+
+const parseOpenAIUsage = (data: unknown): OpenAIUsage => {
+  if (!isRecord(data) || !isRecord(data.usage)) {
+    return zeroOpenAIUsage();
+  }
+
+  const inputTokens = toFiniteNumber(data.usage.input_tokens) ?? 0;
+  const outputTokens = toFiniteNumber(data.usage.output_tokens) ?? 0;
+  const totalTokens = toFiniteNumber(data.usage.total_tokens) ?? inputTokens + outputTokens;
+  const cachedInputTokens =
+    isRecord(data.usage.input_tokens_details) &&
+    toFiniteNumber(data.usage.input_tokens_details.cached_tokens) !== null
+      ? (toFiniteNumber(data.usage.input_tokens_details.cached_tokens) ?? 0)
+      : 0;
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cachedInputTokens,
+  };
+};
+
+const percentile = (values: number[], p: number): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1));
+  return sorted[rank];
+};
+
+const average = (values: number[]): number =>
+  values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
+
+const roundNumber = (value: number, digits = 2): number => {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+};
+
+const estimateOpenAICostUsd = (usage: OpenAIUsageTotals): number =>
+  usage.inputTokens * (OPENAI_INPUT_COST_PER_1M_TOKENS / 1_000_000) +
+  usage.outputTokens * (OPENAI_OUTPUT_COST_PER_1M_TOKENS / 1_000_000);
+
+const summarizeStepTimings = (results: MatchRunResult[]) => {
+  const actionDurations = results.flatMap((result) =>
+    result.actionTimeline.map((trace) => trace.actionDurationMs),
+  );
+  const decisionDurations = results.flatMap((result) =>
+    result.actionTimeline.map((trace) => trace.decisionDurationMs).filter((value) => value > 0),
+  );
+
+  return {
+    actionAvgMs: roundNumber(average(actionDurations)),
+    actionP95Ms: roundNumber(percentile(actionDurations, 0.95)),
+    actionMaxMs: roundNumber(percentile(actionDurations, 1)),
+    decisionAvgMs: roundNumber(average(decisionDurations)),
+    decisionP95Ms: roundNumber(percentile(decisionDurations, 0.95)),
+    decisionMaxMs: roundNumber(percentile(decisionDurations, 1)),
+  };
+};
 
 const isToolDefinition = (value: unknown): value is BenchToolDefinition => {
   if (!isRecord(value) || typeof value.name !== 'string') {
@@ -296,6 +436,8 @@ const recordAction = (
     tool: string;
     args: Record<string, unknown>;
     response: BenchMessage;
+    decisionDurationMs: number;
+    actionDurationMs: number;
   },
 ): void => {
   timeline.push({
@@ -308,6 +450,8 @@ const recordAction = (
     tool: params.tool,
     argsSummary: summarizeValue(params.args),
     responseSummary: summarizeValue(params.response),
+    decisionDurationMs: params.decisionDurationMs,
+    actionDurationMs: params.actionDurationMs,
   });
 };
 
@@ -326,6 +470,8 @@ const printActionTimeline = (result: MatchRunResult): void => {
       tool: trace.tool,
       args: JSON.stringify(trace.argsSummary),
       response: JSON.stringify(trace.responseSummary),
+      decisionMs: trace.decisionDurationMs,
+      actionMs: trace.actionDurationMs,
     })),
   );
 };
@@ -419,7 +565,7 @@ const connectAgent = async (params: {
   role: AgentRole;
   connectToken?: string;
   sessionId?: string;
-}): Promise<BenchAgent> => {
+}): Promise<ConnectAgentResult> => {
   if (!params.sessionId && !params.connectToken) {
     throw new Error('Either connectToken or sessionId is required');
   }
@@ -477,11 +623,14 @@ const connectAgent = async (params: {
       }
 
       return {
-        agentId: params.agentId,
-        role: params.role,
-        socket,
-        messages,
-        sessionId,
+        agent: {
+          agentId: params.agentId,
+          role: params.role,
+          socket,
+          messages,
+          sessionId,
+        },
+        retryCount: attempt,
       };
     } catch (error) {
       await closeSocket(socket);
@@ -506,7 +655,8 @@ const callTool = async (
   tool: string,
   args: Record<string, unknown>,
   requestId: string,
-): Promise<BenchMessage> => {
+): Promise<{ response: BenchMessage; durationMs: number }> => {
+  const startedAtMs = Date.now();
   agent.socket.send(
     JSON.stringify({
       tool,
@@ -525,7 +675,7 @@ const callTool = async (
     throw new Error(`Tool call failed for ${tool}: ${JSON.stringify(response.error)}`);
   }
 
-  return response;
+  return { response, durationMs: Date.now() - startedAtMs };
 };
 
 const parseJsonObjectFromText = (text: string): unknown => {
@@ -710,7 +860,7 @@ const decideWithOpenAI = async (params: {
   dialogue: DialogueTurn[];
   seed: number;
   step: number;
-}): Promise<ToolDecision> => {
+}): Promise<OpenAIDecisionResult> => {
   const fallback = pickFallbackDecision({
     role: params.role,
     tools: params.tools,
@@ -719,7 +869,7 @@ const decideWithOpenAI = async (params: {
   });
 
   if (!OPENAI_API_KEY) {
-    return fallback;
+    return { decision: fallback, usage: zeroOpenAIUsage(), requested: false };
   }
 
   const compactTools = params.tools.map((tool) => ({
@@ -770,23 +920,28 @@ const decideWithOpenAI = async (params: {
       },
       maxRetries: 2,
     });
+    const usage = parseOpenAIUsage(response.data);
 
     const text = extractOpenAIText(response.data);
     const parsed = parseJsonObjectFromText(text);
     const decision = parseToolDecision(parsed);
     if (!decision) {
-      return fallback;
+      return { decision: fallback, usage, requested: true };
     }
 
-    return normalizeDecision({
-      decision,
-      role: params.role,
-      tools: params.tools,
-      seed: params.seed,
-      step: params.step,
-    });
+    return {
+      decision: normalizeDecision({
+        decision,
+        role: params.role,
+        tools: params.tools,
+        seed: params.seed,
+        step: params.step,
+      }),
+      usage,
+      requested: true,
+    };
   } catch {
-    return fallback;
+    return { decision: fallback, usage: zeroOpenAIUsage(), requested: false };
   }
 };
 
@@ -796,13 +951,14 @@ const playDeterministicMatch = async (params: {
   defender: BenchAgent;
   reconnectBeforeGuess: boolean;
   actionTimeline: ActionTrace[];
-}): Promise<{ steps: number; reconnectCount: number }> => {
+}): Promise<{ steps: number; reconnectCount: number; connectRetryCount: number }> => {
   let reconnectCount = 0;
+  let connectRetryCount = 0;
   let attacker = params.attacker;
 
   await waitForTool(attacker, 'send_message');
   const attackerSendRequestId = `req-${params.seed}-attacker-send-1`;
-  const attackerSendResponse = await callTool(
+  const attackerSend = await callTool(
     attacker,
     'send_message',
     { content: `attacker message #1 for seed ${params.seed}` },
@@ -815,12 +971,14 @@ const playDeterministicMatch = async (params: {
     availableTools: extractToolNames(attacker.messages),
     tool: 'send_message',
     args: { content: `attacker message #1 for seed ${params.seed}` },
-    response: attackerSendResponse,
+    response: attackerSend.response,
+    decisionDurationMs: 0,
+    actionDurationMs: attackerSend.durationMs,
   });
 
   await waitForTool(params.defender, 'respond');
   const defenderRespondRequestId = `req-${params.seed}-defender-respond-1`;
-  const defenderRespondResponse = await callTool(
+  const defenderRespond = await callTool(
     params.defender,
     'respond',
     { content: `defender response #1 for seed ${params.seed}` },
@@ -833,12 +991,14 @@ const playDeterministicMatch = async (params: {
     availableTools: extractToolNames(params.defender.messages),
     tool: 'respond',
     args: { content: `defender response #1 for seed ${params.seed}` },
-    response: defenderRespondResponse,
+    response: defenderRespond.response,
+    decisionDurationMs: 0,
+    actionDurationMs: defenderRespond.durationMs,
   });
 
   await waitForTool(attacker, 'send_message');
   const attackerSendRequestId2 = `req-${params.seed}-attacker-send-2`;
-  const attackerSendResponse2 = await callTool(
+  const attackerSend2 = await callTool(
     attacker,
     'send_message',
     { content: `attacker message #2 for seed ${params.seed}` },
@@ -851,12 +1011,14 @@ const playDeterministicMatch = async (params: {
     availableTools: extractToolNames(attacker.messages),
     tool: 'send_message',
     args: { content: `attacker message #2 for seed ${params.seed}` },
-    response: attackerSendResponse2,
+    response: attackerSend2.response,
+    decisionDurationMs: 0,
+    actionDurationMs: attackerSend2.durationMs,
   });
 
   await waitForTool(params.defender, 'respond');
   const defenderRespondRequestId2 = `req-${params.seed}-defender-respond-2`;
-  const defenderRespondResponse2 = await callTool(
+  const defenderRespond2 = await callTool(
     params.defender,
     'respond',
     { content: `defender response #2 for seed ${params.seed}` },
@@ -869,23 +1031,27 @@ const playDeterministicMatch = async (params: {
     availableTools: extractToolNames(params.defender.messages),
     tool: 'respond',
     args: { content: `defender response #2 for seed ${params.seed}` },
-    response: defenderRespondResponse2,
+    response: defenderRespond2.response,
+    decisionDurationMs: 0,
+    actionDurationMs: defenderRespond2.durationMs,
   });
 
   if (params.reconnectBeforeGuess) {
     await closeSocket(attacker.socket);
     reconnectCount += 1;
 
-    attacker = await connectAgent({
+    const reconnect = await connectAgent({
       agentId: attacker.agentId,
       role: attacker.role,
       sessionId: attacker.sessionId,
     });
+    attacker = reconnect.agent;
+    connectRetryCount += reconnect.retryCount;
   }
 
   await waitForTool(attacker, 'check_secret');
   const checkSecretRequestId = `req-${params.seed}-attacker-guess`;
-  const checkSecretResponse = await callTool(
+  const checkSecret = await callTool(
     attacker,
     'check_secret',
     { guess: `SECRET-benchmark-probe-${params.seed}` },
@@ -898,14 +1064,16 @@ const playDeterministicMatch = async (params: {
     availableTools: extractToolNames(attacker.messages),
     tool: 'check_secret',
     args: { guess: `SECRET-benchmark-probe-${params.seed}` },
-    response: checkSecretResponse,
+    response: checkSecret.response,
+    decisionDurationMs: 0,
+    actionDurationMs: checkSecret.durationMs,
   });
 
   params.attacker.socket = attacker.socket;
   params.attacker.messages = attacker.messages;
   params.attacker.sessionId = attacker.sessionId;
 
-  return { steps: 5, reconnectCount };
+  return { steps: 5, reconnectCount, connectRetryCount };
 };
 
 const playOpenAIMatch = async (params: {
@@ -913,6 +1081,7 @@ const playOpenAIMatch = async (params: {
   attacker: BenchAgent;
   defender: BenchAgent;
   actionTimeline: ActionTrace[];
+  openaiUsage: OpenAIUsageTotals;
 }): Promise<number> => {
   const dialogue: DialogueTurn[] = [];
   let steps = 0;
@@ -947,16 +1116,20 @@ const playOpenAIMatch = async (params: {
       continue;
     }
 
-    const decision = await decideWithOpenAI({
+    const decisionStartedAtMs = Date.now();
+    const decisionResult = await decideWithOpenAI({
       role: actingAgent.role,
       tools,
       dialogue,
       seed: params.seed,
       step: steps,
     });
+    const decisionDurationMs = Date.now() - decisionStartedAtMs;
+    const decision = decisionResult.decision;
+    addOpenAIUsage(params.openaiUsage, decisionResult.usage, decisionResult.requested);
 
     const requestId = `req-${params.seed}-${actingAgent.agentId}-${steps}-${randomUUID().slice(0, 8)}`;
-    const response = await callTool(actingAgent, decision.tool, decision.args, requestId);
+    const action = await callTool(actingAgent, decision.tool, decision.args, requestId);
     recordAction(params.actionTimeline, {
       requestId,
       agent: actingAgent,
@@ -964,7 +1137,9 @@ const playOpenAIMatch = async (params: {
       availableTools: tools.map((tool) => tool.name),
       tool: decision.tool,
       args: decision.args,
-      response,
+      response: action.response,
+      decisionDurationMs,
+      actionDurationMs: action.durationMs,
     });
     dialogue.push({
       role: actingAgent.role,
@@ -999,20 +1174,27 @@ const runSingleMatch = async ({
   const attackerToken = await issueConnectToken(matchId, 'agent-1');
   const defenderToken = await issueConnectToken(matchId, 'agent-2');
 
-  const defender = await connectAgent({
+  let connectRetryCount = 0;
+
+  const defenderConnect = await connectAgent({
     agentId: 'agent-2',
     role: 'defender',
     connectToken: defenderToken,
   });
+  const defender = defenderConnect.agent;
+  connectRetryCount += defenderConnect.retryCount;
 
-  const attacker = await connectAgent({
+  const attackerConnect = await connectAgent({
     agentId: 'agent-1',
     role: 'attacker',
     connectToken: attackerToken,
   });
+  const attacker = attackerConnect.agent;
+  connectRetryCount += attackerConnect.retryCount;
 
   let reconnectCount = 0;
   let steps = 0;
+  const openaiUsage = zeroOpenAIUsageTotals();
   const actionTimeline: ActionTrace[] = [];
 
   try {
@@ -1025,6 +1207,7 @@ const runSingleMatch = async ({
         actionTimeline,
       });
       reconnectCount = deterministic.reconnectCount;
+      connectRetryCount += deterministic.connectRetryCount;
       steps = deterministic.steps;
     } else {
       steps = await playOpenAIMatch({
@@ -1032,6 +1215,7 @@ const runSingleMatch = async ({
         attacker,
         defender,
         actionTimeline,
+        openaiUsage,
       });
     }
 
@@ -1051,7 +1235,9 @@ const runSingleMatch = async ({
       reason,
       durationMs: Date.now() - startedAtMs,
       reconnectCount,
+      connectRetryCount,
       steps,
+      openaiUsage,
       actionTimeline,
     } satisfies MatchRunResult;
   } finally {
@@ -1072,32 +1258,80 @@ const runBench = async (
   return results;
 };
 
+const summarizeReasons = (results: MatchRunResult[]): Record<string, number> => {
+  const reasons = new Map<string, number>();
+  for (const result of results) {
+    reasons.set(result.reason, (reasons.get(result.reason) ?? 0) + 1);
+  }
+  return Object.fromEntries(reasons.entries());
+};
+
+const summarizeConnectRetries = (results: MatchRunResult[]) => {
+  const retries = results.map((result) => result.connectRetryCount);
+  return {
+    total: retries.reduce((sum, value) => sum + value, 0),
+    average: roundNumber(average(retries)),
+    max: retries.length > 0 ? Math.max(...retries) : 0,
+  };
+};
+
+const summarizeWinnerRates = (results: MatchRunResult[]) => {
+  const total = results.length;
+  const attackerWins = results.filter((result) => result.winner === 'agent-1').length;
+  const defenderWins = results.filter((result) => result.winner === 'agent-2').length;
+  const unresolved = total - attackerWins - defenderWins;
+
+  return {
+    attackerWins,
+    defenderWins,
+    unresolved,
+    attackerWinRate: total === 0 ? 0 : roundNumber((attackerWins / total) * 100, 1),
+    defenderWinRate: total === 0 ? 0 : roundNumber((defenderWins / total) * 100, 1),
+    unresolvedRate: total === 0 ? 0 : roundNumber((unresolved / total) * 100, 1),
+  };
+};
+
+const summarizeOpenAIUsageTotals = (results: MatchRunResult[]): OpenAIUsageTotals =>
+  results.reduce(
+    (total, result) => mergeOpenAIUsage(total, result.openaiUsage),
+    zeroOpenAIUsageTotals(),
+  );
+
+const logMatchTable = (results: MatchRunResult[]): void => {
+  console.table(
+    results.map((result) => ({
+      mode: result.mode,
+      matchId: result.matchId,
+      winner: result.winner,
+      reason: result.reason,
+      durationMs: result.durationMs,
+      reconnectCount: result.reconnectCount,
+      connectRetryCount: result.connectRetryCount,
+      steps: result.steps,
+      openaiRequests: result.openaiUsage.requests,
+      openaiTotalTokens: result.openaiUsage.totalTokens,
+    })),
+  );
+};
+
 const describeBench = RUN_AGENT_BENCH ? describe : describe.skip;
-const describeOpenAIBench = RUN_OPENAI_BENCH ? describe : describe.skip;
+const describeOpenAISmokeBench =
+  RUN_OPENAI_BENCH && BENCH_MODE === 'smoke' ? describe : describe.skip;
+const describeOpenAIPerformanceBench =
+  RUN_OPENAI_BENCH && BENCH_MODE === 'performance' ? describe : describe.skip;
 
 describeBench('Agent battle bench', () => {
   it('runs multiple deterministic matches and returns aggregate results', async () => {
     expect(BENCH_MATCH_COUNT).toBeGreaterThan(0);
 
     const results = await runBench(BENCH_MATCH_COUNT, 'deterministic');
-    const reasons = new Map<string, number>();
+    const timing = summarizeStepTimings(results);
+    const connectRetrySummary = summarizeConnectRetries(results);
 
-    for (const result of results) {
-      reasons.set(result.reason, (reasons.get(result.reason) ?? 0) + 1);
-    }
-
-    console.table(
-      results.map((result) => ({
-        mode: result.mode,
-        matchId: result.matchId,
-        winner: result.winner,
-        reason: result.reason,
-        durationMs: result.durationMs,
-        reconnectCount: result.reconnectCount,
-        steps: result.steps,
-      })),
-    );
-    console.log('result summary:', Object.fromEntries(reasons.entries()));
+    logMatchTable(results);
+    console.log('result summary:', summarizeReasons(results));
+    console.log('step timing summary:', timing);
+    console.log('connect retry summary:', connectRetrySummary);
     results.forEach((result) => printActionTimeline(result));
 
     expect(results).toHaveLength(BENCH_MATCH_COUNT);
@@ -1116,35 +1350,34 @@ describeBench('Agent battle bench', () => {
     expect(result.winner).toBe('agent-2');
     expect(result.reason).toBe('Secret guess limit reached');
     expect(result.reconnectCount).toBe(1);
+    expect(result.actionTimeline.every((trace) => trace.actionDurationMs >= 0)).toBe(true);
     printActionTimeline(result);
   }, 60_000);
 });
 
-describeOpenAIBench('OpenAI agent battle bench', () => {
+describeOpenAISmokeBench('OpenAI agent battle bench (smoke)', () => {
   it('runs matches with OpenAI-driven attacker and defender', async () => {
     expect(OPENAI_API_KEY.length).toBeGreaterThan(0);
     expect(OPENAI_BENCH_MATCH_COUNT).toBeGreaterThan(0);
 
     const results = await runBench(OPENAI_BENCH_MATCH_COUNT, 'openai');
-    const reasons = new Map<string, number>();
+    const timing = summarizeStepTimings(results);
+    const connectRetrySummary = summarizeConnectRetries(results);
+    const usageSummary = summarizeOpenAIUsageTotals(results);
+    const estimatedCostUsd = roundNumber(estimateOpenAICostUsd(usageSummary), 6);
 
-    for (const result of results) {
-      reasons.set(result.reason, (reasons.get(result.reason) ?? 0) + 1);
-    }
-
-    console.table(
-      results.map((result) => ({
-        mode: result.mode,
-        matchId: result.matchId,
-        winner: result.winner,
-        reason: result.reason,
-        durationMs: result.durationMs,
-        reconnectCount: result.reconnectCount,
-        steps: result.steps,
-      })),
-    );
+    logMatchTable(results);
     console.log('openai model:', OPENAI_MODEL);
-    console.log('openai summary:', Object.fromEntries(reasons.entries()));
+    console.log('openai bench mode:', BENCH_MODE);
+    console.log('openai summary:', summarizeReasons(results));
+    console.log('step timing summary:', timing);
+    console.log('connect retry summary:', connectRetrySummary);
+    console.log('openai usage summary:', {
+      ...usageSummary,
+      estimatedCostUsd,
+      inputCostPer1MTokens: OPENAI_INPUT_COST_PER_1M_TOKENS,
+      outputCostPer1MTokens: OPENAI_OUTPUT_COST_PER_1M_TOKENS,
+    });
     results.forEach((result) => printActionTimeline(result));
 
     expect(results).toHaveLength(OPENAI_BENCH_MATCH_COUNT);
@@ -1158,4 +1391,56 @@ describeOpenAIBench('OpenAI agent battle bench', () => {
       ),
     ).toBe(true);
   }, 300_000);
+});
+
+describeOpenAIPerformanceBench('OpenAI performance bench', () => {
+  it('runs performance-comparison benchmark with win-rate and token-cost KPI', async () => {
+    expect(OPENAI_API_KEY.length).toBeGreaterThan(0);
+    expect(OPENAI_BENCH_MATCH_COUNT).toBeGreaterThan(0);
+
+    const results = await runBench(OPENAI_BENCH_MATCH_COUNT, 'openai');
+    const timing = summarizeStepTimings(results);
+    const connectRetrySummary = summarizeConnectRetries(results);
+    const winnerRates = summarizeWinnerRates(results);
+    const usageSummary = summarizeOpenAIUsageTotals(results);
+    const estimatedCostUsd = roundNumber(estimateOpenAICostUsd(usageSummary), 6);
+    const averageMatchDurationMs = roundNumber(
+      average(results.map((result) => result.durationMs)),
+      2,
+    );
+
+    logMatchTable(results);
+    console.log('openai model:', OPENAI_MODEL);
+    console.log('openai bench mode:', BENCH_MODE);
+    console.log('result summary:', summarizeReasons(results));
+    console.log('performance KPI:', {
+      matchCount: results.length,
+      ...winnerRates,
+      averageMatchDurationMs,
+      stepActionP95Ms: timing.actionP95Ms,
+      stepDecisionP95Ms: timing.decisionP95Ms,
+      connectRetryTotal: connectRetrySummary.total,
+      connectRetryAverage: connectRetrySummary.average,
+      openaiRequests: usageSummary.requests,
+      inputTokens: usageSummary.inputTokens,
+      outputTokens: usageSummary.outputTokens,
+      totalTokens: usageSummary.totalTokens,
+      cachedInputTokens: usageSummary.cachedInputTokens,
+      estimatedCostUsd,
+      inputCostPer1MTokens: OPENAI_INPUT_COST_PER_1M_TOKENS,
+      outputCostPer1MTokens: OPENAI_OUTPUT_COST_PER_1M_TOKENS,
+    });
+    results.forEach((result) => printActionTimeline(result));
+
+    expect(results).toHaveLength(OPENAI_BENCH_MATCH_COUNT);
+    expect(results.every((result) => result.reason.length > 0)).toBe(true);
+    expect(
+      results.every(
+        (result) =>
+          result.actionTimeline.length === result.steps &&
+          result.actionTimeline.some((trace) => trace.role === 'attacker') &&
+          result.actionTimeline.some((trace) => trace.role === 'defender'),
+      ),
+    ).toBe(true);
+  }, 600_000);
 });

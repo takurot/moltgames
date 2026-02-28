@@ -62,16 +62,39 @@ docker compose down
 
 ## 4. OpenAI Benchmark Mode (Optional)
 
+### 4.1 Smoke mode (quick integration check)
+
 ```bash
 export OPENAI_API_KEY="<your-api-key>"
 pnpm test:bench:agents:openai
 ```
 
-Useful options:
+This runs a small sample (`OPENAI_BENCH_MATCH_COUNT=1`) to confirm end-to-end OpenAI flow.
+
+### 4.2 Performance mode (comparison)
+
+```bash
+export OPENAI_API_KEY="<your-api-key>"
+pnpm test:bench:agents:openai:perf
+```
+
+This runs a larger sample (`OPENAI_BENCH_MATCH_COUNT=20`) and prints:
+
+- win-rate KPI (`attackerWinRate`, `defenderWinRate`)
+- step latency KPI (`stepActionP95Ms`, `stepDecisionP95Ms`)
+- connect retry KPI (`connectRetryTotal`, `connectRetryAverage`)
+- OpenAI usage/cost KPI (`inputTokens`, `outputTokens`, `totalTokens`, `estimatedCostUsd`)
+
+### 4.3 Useful options
 
 - `OPENAI_MODEL` (default: `gpt-4.1-mini`)
-- `OPENAI_BENCH_MATCH_COUNT` (default: `1`)
+- `BENCH_MODE` (`smoke` / `performance`, default: `smoke`)
+- `OPENAI_BENCH_MATCH_COUNT` (default: `1` for smoke, `20` for performance)
 - `OPENAI_MAX_OUTPUT_TOKENS` (default: `220`)
+- `OPENAI_INPUT_COST_PER_1M_TOKENS` (default: `0`)
+- `OPENAI_OUTPUT_COST_PER_1M_TOKENS` (default: `0`)
+
+If pricing env vars are set, benchmark output includes estimated USD cost.
 
 ## 5. Troubleshooting
 
