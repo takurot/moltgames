@@ -34,6 +34,6 @@ export interface GamePlugin<S = unknown> {
   getAvailableTools(state: S, agentId: string, phase: string): MCPToolDefinition[];
   validateAction(state: S, action: Action): ValidationResult;
   applyAction(state: S, action: Action): ApplyActionResult<S>;
-  checkTermination(state: S): TerminationResult | null;
+  checkTermination(state: S): TerminationResult | Promise<TerminationResult | null> | null;
   redactState?(state: S): S;
 }

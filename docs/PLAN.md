@@ -488,18 +488,18 @@ graph TD
 
 タスク:
 
-- [ ] `GamePlugin` 実装: `VectorGridWars`
+- [x] `GamePlugin` 実装: `VectorGridWars`
   - 10x10 グリッド初期化
   - 占有スコア計算
   - 規定ターン終了判定
-- [ ] LLM Judge 統合
+- [x] LLM Judge 統合
   - 固定モデルバージョン + プロンプトテンプレート (§6.2)
   - 2 回評価の平均点方式
-- [ ] MCP ツール定義
+- [x] MCP ツール定義
   - `place_unit`: ユニット配置
   - `move_unit`: ユニット移動
   - `get_board`: 盤面状態取得
-- [ ] ユニットテスト: スコア計算、ターン制限、LLM Judge モック
+- [x] ユニットテスト: スコア計算、ターン制限、LLM Judge モック
 
 ---
 

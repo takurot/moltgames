@@ -65,6 +65,9 @@ importers:
       ioredis:
         specifier: ^5.9.3
         version: 5.9.3
+      openai:
+        specifier: ^6.25.0
+        version: 6.25.0(ws@8.19.0)(zod@3.25.76)
       pino:
         specifier: ^9.14.0
         version: 9.14.0

@@ -11,6 +11,7 @@
     "@moltgames/mcp-protocol": "workspace:*",
     "fastify": "^5.7.4",
     "ioredis": "^5.9.3",
+    "openai": "^6.25.0",
     "pino": "^9.14.0"
   },
   "scripts": {

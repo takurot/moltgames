@@ -315,7 +315,7 @@ export class Engine {
       const currentTurn = parseNonNegativeInt(meta.turn) ?? newTurn;
 
       // 5. Check Termination
-      const termination = plugin.checkTermination(newState);
+      const termination = await plugin.checkTermination(newState);
 
       // 6. Save State
       await this.redis.saveMatchState(matchId, newState);
