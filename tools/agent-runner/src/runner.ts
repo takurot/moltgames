@@ -313,6 +313,15 @@ export class Runner extends EventEmitter {
       return;
     }
 
+    if (
+      type &&
+      'addHistory' in this.options.planner &&
+      typeof this.options.planner.addHistory === 'function' &&
+      ['turn/started', 'turn/ended', 'match/started'].includes(type)
+    ) {
+      this.options.planner.addHistory('system', JSON.stringify(message));
+    }
+
     this.handleToolResponse(message);
   }
 
@@ -327,6 +336,17 @@ export class Runner extends EventEmitter {
     ) {
       this.activeRequestId = null;
       this.emit('tool_response', message);
+
+      if (
+        'addHistory' in this.options.planner &&
+        typeof this.options.planner.addHistory === 'function'
+      ) {
+        this.options.planner.addHistory(
+          'system',
+          `Tool Result (${status}): ${JSON.stringify(message)}`,
+        );
+      }
+
       void this.maybeRunActionLoop();
       return;
     }
