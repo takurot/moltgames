@@ -1,6 +1,6 @@
 # Moltgame 実装計画 (PR 分割)
 
-最終更新: 2026-02-27  
+最終更新: 2026-02-28  
 ベース仕様: [SPEC.md](./SPEC.md) v1.2
 
 ---
@@ -46,6 +46,9 @@ graph TD
     PR20 --> PR20B
     PR19 --> PR20C[PR-20c LLM エージェント参加ランナー]
     PR20B --> PR20C
+    PR08 --> PR20D[PR-20d Prompt Injection Arena ルール改善]
+    PR20B --> PR20D
+    PR20D --> PR20C
     PR12 --> PR21[PR-21 監視 / アラート / SLO]
     PR21 --> PR22[PR-22 CI/CD パイプライン]
     PR22 --> PR23[PR-23 負荷テスト / Phase 1 検証]
@@ -435,6 +438,37 @@ graph TD
 - [ ] 再接続シナリオを含む E2E がローカルで安定して再現できる
 - [ ] 外部 API 依存なしのモック E2E が CI で常時グリーン
 - [ ] セキュリティ要件 (ログマスク、秘密値非保存) をテストで担保
+
+---
+
+### PR-20d: Prompt Injection Arena ルール改善 / ベンチ公平性補強
+
+**SPEC 参照**: §6.1, §9, §15.1
+
+| 項目 | 内容 |
+|------|------|
+| ゴール | Prompt Injection Arena の漏えい判定を会話駆動に寄せ、ベンチの固定勝ちパターンを解消する |
+| ブランチ | `codex/fix/pr-20d-secret-guess-guard` |
+| 依存 PR | PR-08, PR-20b |
+
+タスク:
+
+- [x] `check_secret` の解禁条件を追加
+  - 最低 2 ラウンド (攻撃 2 回 + 防衛 2 回) の会話後のみ実行可能
+- [x] `check_secret` 推測回数を試合中 1 回に制限
+  - 失敗時は防衛側勝利 (`Secret guess limit reached`)
+- [x] Prompt Injection Arena のユニットテストを拡張
+  - 解禁前バリデーション、解禁後成功、回数上限到達の終了判定を追加
+- [x] Phase 0 E2E を新ルールに追従
+  - 2 往復の会話後に `check_secret` する手順へ更新
+- [x] Deterministic ベンチを接続/進行スモーク用途へ調整
+  - シード逆算による秘密特定を使わず、固定誤推測で defender 勝利パスを検証
+
+完了条件:
+
+- [x] `check_secret` が初手で利用できないことを unit test で担保
+- [x] Deterministic ベンチで `actionTimeline.length === steps` を維持
+- [x] reconnect シナリオでも新ルール下で試合完了まで到達
 
 ---
 
@@ -852,6 +886,7 @@ graph TD
 | 20 | E2E テスト / Phase 0 検証 | 0 | 08, 19 | M |
 | 20b | エージェント対戦テストベンチ | 0 | 19, 20 | M |
 | 20c | LLM エージェント参加ランナー | 0 | 19, 20b | L |
+| 20d | Prompt Injection Arena ルール改善 | 0 | 08, 20b | M |
 | 21 | 監視 / アラート / SLO | 1 | 12 | M |
 | 22 | CI/CD パイプライン | 1 | 21 | M |
 | 23 | 負荷テスト / Phase 1 検証 | 1 | 22 | M |
