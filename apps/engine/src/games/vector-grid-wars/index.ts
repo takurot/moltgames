@@ -126,6 +126,10 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
             return { valid: true };
         }
 
+        if (state.gameOver || state.turn > state.maxTurns) {
+            return { valid: false, error: 'Game is over' };
+        }
+
         if (action.tool !== 'place_unit' && action.tool !== 'move_unit') {
             return { valid: false, error: 'Invalid tool' };
         }
@@ -257,8 +261,11 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
             if (evalResult.reason) {
                 termination.reason = evalResult.reason;
             }
-            // We cannot update state directly here as the engine expects unmodified state if we return termination.
-            // Engine handles termination and saves the terminated match.
+
+            // Mutate state so the engine persists the termination result and avoids repeated LLM calls
+            state.gameOver = true;
+            state.terminationResult = termination;
+
             return termination;
         }
 
