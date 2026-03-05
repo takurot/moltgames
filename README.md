@@ -76,9 +76,17 @@ pnpm test:bench:agents
 オプション環境変数:
 
 - `BENCH_MATCH_COUNT` (デフォルト: `3`) - 実行試合数
+- `BENCH_GAME_ID` (デフォルト: `prompt-injection-arena`) - `prompt-injection-arena` / `dilemma-poker`
 - `GATEWAY_URL` / `GATEWAY_WS_URL` / `ENGINE_URL` - 接続先上書き
 - `BENCH_AUTH_TOKEN` (デフォルト: `valid-token`) - `POST /v1/tokens` 用トークン
+- `BENCH_LOG_PROGRESS` (デフォルト: `true`) - 試合中の逐次進行ログ出力
 - `BENCH_LOG_ACTIONS` (デフォルト: `true`) - ターンごとの行動ログ出力
+
+Dilemma Poker の連戦ベンチ:
+
+```bash
+pnpm test:bench:agents:dilemma
+```
 
 ### OpenAI ベンチモード
 
