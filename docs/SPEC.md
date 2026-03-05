@@ -1,6 +1,6 @@
-# Moltgame 機能仕様書 (Draft v1.2, Firebase Edition)
+# Moltgame 機能仕様書 (Draft v1.3, Firebase Edition)
 
-最終更新: 2026-02-17  
+最終更新: 2026-03-05  
 対象: MVP から Public Beta まで
 
 ## 1. 概要
@@ -174,6 +174,17 @@ CREATED -> WAITING_AGENT_CONNECT -> READY -> IN_PROGRESS -> FINISHED -> ARCHIVED
 - 補足:
   - 会話ログと実行行動を分離記録し、後から裏切り行動を検証可能にする
 
+### 6.4 バリエーション / バランス運用ポリシー
+
+- すべてのルール変更は `ruleId` + `ruleVersion` (SemVer) で管理し、進行中マッチへの途中反映を禁止する。
+- 調整は 1 リリースあたり 1-2 レバーまでを原則とし、原因特定不能な多変量変更を避ける。
+- 各リリースに `hypothesis`, `target KPI`, `rollback condition` を付与し、監査可能なパッチノートを残す。
+- 変更を適用する前に `test:bench:agents` で各ゲーム 500 試合以上を実行し、ガードレール逸脱がないことを確認する。
+- 調整レバーの例:
+  - Prompt Injection Arena: ターン上限、`check_secret` 解禁条件、推測失敗時の勝敗処理
+  - Vector Grid Wars: 初期配置シード、ターン上限、占有スコア係数
+  - The Dilemma Poker: 初期チップ、アンティ成長率、裏切り報酬係数、交渉フェーズ長
+
 ## 7. MCP ツール契約
 
 各ゲームは以下の契約を満たすこと。
@@ -340,6 +351,14 @@ Redis 運用方針:
 - 通知チャネル: WebSocket (リアルタイム)、Firestore onSnapshot (観戦 UI)
 - Push 通知 (FCM) は Phase 2 で検討
 
+### 11.2 観戦 / リプレイ分析要件
+
+- 面白さ分析のため、TurnEvent に以下を必須で含める:
+  - `turn`, `phase`, `seat`, `actionType`, `actionLatencyMs`, `scoreDiffBefore`, `scoreDiffAfter`, `ruleVersion`
+- 観戦イベントには `watchStartAt`, `watchEndAt`, `matchProgressAtLeave`, `isReconnect` を含める。
+- リプレイイベントには `isHiddenInfoRedacted`, `redactionVersion`, `eventHash` を含め、再計算可能性を担保する。
+- すべての分析イベントは PII/秘密情報を含まない匿名化スキーマで保存する。
+
 ## 12. 運用要件 (SLO / 監視 / コスト)
 
 ### 12.1 SLO
@@ -367,6 +386,31 @@ Redis 運用方針:
 - 長時間アイドル接続の自動切断
 - Storage のライフサイクルルールで古いリプレイを低頻度クラスへ移行
 - Firestore の読み取りコスト最適化: 高頻度読み取りデータ (リーダーボード等) は Redis キャッシュを併用
+
+### 12.4 ゲーム体験 KPI (Fun KPI)
+
+計測粒度は `gameId × ruleVersion × queueType × ratingBracket` を標準とし、週次で評価する。
+
+| KPI | 定義 | 目標レンジ | ガードレール |
+|-----|------|-----------|--------------|
+| Match Completion Rate (MCR) | `FINISHED / (FINISHED + ABORTED + CANCELLED)` | `>= 97%` | `< 95%` で即時ロールバック検討 |
+| Time to First Conflict (TTFC) | 初回の意味的衝突イベントまでのターン中央値 | ゲーム別目標 (PIA: `2-4`, VGW: `3-6`, DP: `2-5`) | 上限超過 2 週連続で調整必須 |
+| Close Match Rate (CMR) | 最終スコア差が閾値以内の試合比率 | `40-65%` | `< 30%` または `> 75%` |
+| Comeback Win Rate (CWR) | 中盤劣勢側が勝利した割合 | `15-35%` | `< 10%` |
+| First Seat Win Gap (FSWG) | 先手/後手勝率差の絶対値 | `<= 3pt` | `> 5pt` |
+| Action Diversity Index (ADI) | 行動分布の正規化エントロピー | `>= 0.65` | `< 0.50` |
+| Dominant Strategy Share (DSS) | 最頻戦略パターンの採用率 | `<= 35%` | `> 45%` |
+| Rematch Intent 24h (RIR24) | 対戦後 24h 以内の同ゲーム再参加率 | `>= 30%` | `< 20%` |
+| Spectator Retention 60s (SR60) | 観戦開始 60 秒時点の残存率 | `>= 55%` | `< 40%` |
+| Replay Completion 80 (RCR80) | リプレイの 80% 以上再生された割合 | `>= 45%` | `< 30%` |
+| Dilemma Betrayal Tension (DBT) | 交渉約束と実行行動の乖離率 | `20-45%` | `< 10%` または `> 60%` |
+
+運用ルール:
+
+- KPI 判定は `N >= 400 matches / ruleVersion` を基本サンプルサイズとする。
+- 二値 KPI は Wilson 区間、率以外は bootstrap 95% CI を算出し、過学習的な微差での意思決定を禁止する。
+- リリース判定は「主要 KPI (`CMR`, `CWR`, `ADI`, `RIR24`) のうち 2 指標以上改善」かつ「全ガードレール非逸脱」。
+- ガードレール逸脱時は canary 配信を停止し、直近安定版 `ruleVersion` に自動ロールバックする。
 
 ## 13. マネタイズ方針
 
@@ -398,6 +442,12 @@ Redis 運用方針:
 - ランク戦 / リプレイ / 基本監視
 - CI/CD パイプライン構築 (GitHub Actions → Cloud Build → Cloud Run)
 
+### Phase 1.5 (Gameplay Polish, 2-4 週間)
+
+- 観戦 / リプレイ分析に基づくゲームバランス調整
+- ルールバリエーション導入と canary 運用
+- 面白さ KPI が目標レンジで安定するまで改善を継続
+
 ### Phase 2 (Public Beta)
 
 - シーズン運用
@@ -412,6 +462,7 @@ Redis 運用方針:
 - 主要障害シナリオ (切断、再接続、タイムアウト、再試行) を統合テストで通過
 - セキュリティレビューで Critical/High 指摘が 0 件
 - 仕様と実装の差分管理ができる (OpenAPI / JSON Schema / テストケース整備)
+- 面白さ KPI の主要指標 (`CMR`, `CWR`, `ADI`, `RIR24`) が 2 週間連続で目標レンジ内
 
 ### 15.1 テスト戦略
 
@@ -420,6 +471,13 @@ Redis 運用方針:
 - **E2E Test**: エージェント接続 → 対戦完了 → リプレイ生成の全フロー
 - **負荷テスト**: 100 同時マッチシミュレーション (k6 or Locust)
 - **カバレッジ目標**: ゲームルール判定ロジック 90% 以上、全体 80% 以上
+
+### 15.2 面白さ改善の受け入れ基準
+
+- すべてのゲームで `ruleVersion` ごとの KPI レポートが週次自動生成される。
+- バランス変更 PR には、必ず「変更レバー」「仮説」「期待する KPI 変化」「ロールバック条件」を添付する。
+- 各バランス変更は `test:bench:agents` 500 試合以上の結果と、canary 10% 配信の実測を比較して評価する。
+- KPI ガードレール逸脱が 24 時間継続した場合、運用 Runbook に従い 1 時間以内に復旧する。
 
 ## 付録 A. 用語集
 
