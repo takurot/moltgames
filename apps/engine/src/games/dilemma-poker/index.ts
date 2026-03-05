@@ -154,11 +154,27 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
           error: 'Only negotiate or get_status is allowed in negotiation phase',
         };
       }
+
+      const message = action.args.message;
+      if (typeof message !== 'string' || message.trim().length === 0 || message.length > 500) {
+        return {
+          valid: false,
+          error: 'message must be a non-empty string with maximum length 500',
+        };
+      }
     } else if (state.phase === 'action') {
       if (action.tool !== 'commit_action') {
         return {
           valid: false,
           error: 'Only commit_action or get_status is allowed in action phase',
+        };
+      }
+
+      const selectedAction = action.args.action;
+      if (selectedAction !== 'cooperate' && selectedAction !== 'defect') {
+        return {
+          valid: false,
+          error: "action must be either 'cooperate' or 'defect'",
         };
       }
     } else {
@@ -193,12 +209,6 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
           nextState.players[currentAgentId === state.agent1Id ? state.agent2Id : state.agent1Id]!
             .chips,
       };
-      // get_status does not consume a turn, wait actually get_status might be called as a turn?
-      // In PromptInjectionArena, tools consume turns. Usually read-only tools don't consume turns, but in this engine design, any applied action consumes a turn from the engine's perspective if it's returned.
-      // Wait, Engine calls consumeTurn() anyway. We should increment turn here.
-      // But typically we want them to *only* do a state-changing action to pass the turn?
-      // Let's just consume turn for `get_status` too.
-      nextState.turn++;
       return { state: nextState, result };
     }
 

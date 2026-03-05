@@ -143,4 +143,41 @@ describe('DilemmaPoker', () => {
     // but we can check if it leaves history alone.
     expect(redacted.history).toEqual(state.history);
   });
+
+  it('should not consume turn when get_status is called', () => {
+    let state = plugin.initialize(123);
+
+    const statusResult = plugin.applyAction(state, {
+      tool: 'get_status',
+      request_id: 'status-1',
+      args: {},
+    });
+    state = statusResult.state;
+
+    expect(state.turn).toBe(1);
+    expect(state.phase).toBe('negotiation');
+    expect(
+      plugin.getAvailableTools(state, agent1, 'negotiation').some((t) => t.name === 'negotiate'),
+    ).toBe(true);
+    expect(plugin.getAvailableTools(state, agent2, 'negotiation').length).toBe(0);
+  });
+
+  it('should validate action args', () => {
+    let state = plugin.initialize(123);
+
+    const invalidNegotiate = plugin.validateAction(state, {
+      tool: 'negotiate',
+      request_id: 'v-1',
+      args: { message: '' },
+    });
+    expect(invalidNegotiate.valid).toBe(false);
+
+    state.phase = 'action';
+    const invalidCommit = plugin.validateAction(state, {
+      tool: 'commit_action',
+      request_id: 'v-2',
+      args: { action: 'all-in' },
+    });
+    expect(invalidCommit.valid).toBe(false);
+  });
 });

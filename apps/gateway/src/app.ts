@@ -250,9 +250,16 @@ export const createApp = async (options: AppOptions = {}) => {
     },
   });
 
-  const isDevOrTest = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const configuredRateLimitMax = Number.parseInt(process.env.RATE_LIMIT_MAX ?? '', 10);
+  const rateLimitMax =
+    Number.isFinite(configuredRateLimitMax) && configuredRateLimitMax > 0
+      ? configuredRateLimitMax
+      : isDevelopment
+        ? 1000
+        : 5;
   await app.register(rateLimit, {
-    max: isDevOrTest ? 1000 : 5,
+    max: rateLimitMax,
     timeWindow: 10000,
     keyGenerator: (req) => {
       const auth = req.headers.authorization;
@@ -287,7 +294,7 @@ export const createApp = async (options: AppOptions = {}) => {
         if (redis.status === 'ready' || redis.status === 'connect') {
           return redis.ping();
         }
-        await redis.connect().catch(() => { });
+        await redis.connect().catch(() => {});
         return redis.ping();
       })();
 
