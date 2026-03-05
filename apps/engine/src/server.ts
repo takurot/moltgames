@@ -5,6 +5,7 @@ import { RedisManager } from './state/redis-manager.js';
 import type { Action } from './framework/types.js';
 import { PromptInjectionArena } from './games/prompt-injection-arena.js';
 import { VectorGridWars } from './games/vector-grid-wars/index.js';
+import { DilemmaPoker } from './games/dilemma-poker/index.js';
 
 export const createServer = async () => {
   const fastify = Fastify({
@@ -20,6 +21,7 @@ export const createServer = async () => {
   // Register game plugins
   engine.registerPlugin(new PromptInjectionArena());
   engine.registerPlugin(new VectorGridWars());
+  engine.registerPlugin(new DilemmaPoker());
 
   fastify.post<{ Params: { matchId: string }; Body: { gameId: string; seed: number } }>(
     '/matches/:matchId/start',
