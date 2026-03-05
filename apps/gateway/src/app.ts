@@ -250,8 +250,9 @@ export const createApp = async (options: AppOptions = {}) => {
     },
   });
 
+  const isDevOrTest = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
   await app.register(rateLimit, {
-    max: 5,
+    max: isDevOrTest ? 1000 : 5,
     timeWindow: 10000,
     keyGenerator: (req) => {
       const auth = req.headers.authorization;
@@ -286,7 +287,7 @@ export const createApp = async (options: AppOptions = {}) => {
         if (redis.status === 'ready' || redis.status === 'connect') {
           return redis.ping();
         }
-        await redis.connect().catch(() => {});
+        await redis.connect().catch(() => { });
         return redis.ping();
       })();
 
