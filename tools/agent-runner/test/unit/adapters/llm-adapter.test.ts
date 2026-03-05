@@ -159,4 +159,40 @@ describe('OpenAIAdapter', () => {
       }),
     ).resolves.toBeNull();
   });
+
+  it('passes baseURL and positive integer max_output_tokens', async () => {
+    openAiMockState.queuedResponses.push({ output: [] });
+
+    const adapter = new OpenAIAdapter({
+      apiKey: 'test-key',
+      baseURL: 'http://localhost:8787/v1',
+      maxOutputTokens: 128,
+    });
+    await adapter.generateAction({
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: TEST_TOOLS,
+    });
+
+    expect(openAiMockState.constructorOptions).toEqual([
+      { apiKey: 'test-key', baseURL: 'http://localhost:8787/v1' },
+    ]);
+    expect(openAiMockState.createCalls[0]).toMatchObject({
+      max_output_tokens: 128,
+    });
+  });
+
+  it.each([0, -1, 1.5])(
+    'does not pass max_output_tokens when maxOutputTokens is invalid (%s)',
+    async (maxOutputTokens) => {
+      openAiMockState.queuedResponses.push({ output: [] });
+
+      const adapter = new OpenAIAdapter({ apiKey: 'test-key', maxOutputTokens });
+      await adapter.generateAction({
+        messages: [{ role: 'user', content: 'hello' }],
+        tools: TEST_TOOLS,
+      });
+
+      expect(openAiMockState.createCalls[0]).not.toHaveProperty('max_output_tokens');
+    },
+  );
 });

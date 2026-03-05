@@ -123,8 +123,13 @@ export class OpenAIAdapter implements LLMAdapter {
       createOptions.tool_choice = 'auto';
     }
 
-    if (typeof this.maxOutputTokens === 'number' && Number.isFinite(this.maxOutputTokens)) {
-      createOptions.max_output_tokens = this.maxOutputTokens;
+    const maxOutputTokens = this.maxOutputTokens;
+    if (
+      typeof maxOutputTokens === 'number' &&
+      Number.isInteger(maxOutputTokens) &&
+      maxOutputTokens > 0
+    ) {
+      createOptions.max_output_tokens = maxOutputTokens;
     }
 
     const response = await this.client.responses.create(createOptions);
