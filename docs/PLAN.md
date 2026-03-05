@@ -428,7 +428,7 @@ graph TD
   - 実装: `tools/agent-runner` (接続/再接続、`tools/list` 追従、1ターン1アクションループ)
   - `connect_token` 接続、`session_id` 再接続、`tools/list` / `tools/list_changed` 追従
   - 1 ターン 1 アクションの実行ループ
-- [ ] LLMAdapter 実装
+- [x] LLMAdapter 実装
   - `MockLLMAdapter` (テスト用)
   - `OpenAIAdapter` (本番用; model/version を設定可能にする)
 - [ ] ツール呼び出しガード実装

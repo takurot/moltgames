@@ -16,45 +16,106 @@ export interface LLMAdapter {
   generateAction(context: LLMAdapterContext): Promise<LLMToolCall | null>;
 }
 
+export interface OpenAIAdapterOptions {
+  apiKey?: string;
+  model?: string;
+  baseURL?: string;
+  maxOutputTokens?: number;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const parseToolArguments = (value: unknown): Record<string, unknown> | null => {
+  if (isRecord(value)) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+interface ResponseFunctionCall {
+  name: string;
+  arguments: unknown;
+}
+
+const extractFirstFunctionCall = (response: unknown): ResponseFunctionCall | null => {
+  if (!isRecord(response) || !Array.isArray(response.output)) {
+    return null;
+  }
+
+  for (const item of response.output) {
+    if (!isRecord(item) || item.type !== 'function_call' || typeof item.name !== 'string') {
+      continue;
+    }
+
+    return {
+      name: item.name,
+      arguments: item.arguments,
+    };
+  }
+
+  return null;
+};
+
 export class OpenAIAdapter implements LLMAdapter {
   private client: OpenAI;
   private model: string;
+  private maxOutputTokens: number | undefined;
 
-  constructor(options: { apiKey?: string; model?: string } = {}) {
-    const clientOptions: Record<string, unknown> = {};
-    if (options.apiKey) {
-      clientOptions.apiKey = options.apiKey;
-    } else if (process.env.OPENAI_API_KEY) {
-      clientOptions.apiKey = process.env.OPENAI_API_KEY;
+  constructor(options: OpenAIAdapterOptions = {}) {
+    const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
+    const clientOptions: ConstructorParameters<typeof OpenAI>[0] = {};
+
+    if (apiKey) {
+      clientOptions.apiKey = apiKey;
+    }
+    if (options.baseURL) {
+      clientOptions.baseURL = options.baseURL;
     }
 
     this.client = new OpenAI(clientOptions);
-    this.model = options.model || 'gpt-4-turbo'; // Default model
+    this.model = options.model ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
+    this.maxOutputTokens = options.maxOutputTokens;
   }
 
   async generateAction(context: LLMAdapterContext): Promise<LLMToolCall | null> {
-    const formattedTools: OpenAI.Chat.Completions.ChatCompletionTool[] = context.tools.map(
-      (tool) => ({
-        type: 'function',
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.inputSchema as Record<string, unknown>,
-        },
-      }),
-    );
+    const formattedTools: OpenAI.Responses.Tool[] = context.tools.map((tool) => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema as Record<string, unknown>,
+      strict: false,
+    }));
 
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+    const input: OpenAI.Responses.ResponseInput = [];
 
     if (context.systemPrompt) {
-      messages.push({ role: 'system', content: context.systemPrompt });
+      input.push({
+        role: 'system',
+        content: context.systemPrompt,
+      });
     }
 
-    messages.push(...context.messages);
+    for (const message of context.messages) {
+      input.push({
+        role: message.role,
+        content: message.content,
+      });
+    }
 
-    const createOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
+    const createOptions: OpenAI.Responses.ResponseCreateParamsNonStreaming = {
       model: this.model,
-      messages,
+      input,
     };
 
     if (formattedTools.length > 0) {
@@ -62,30 +123,25 @@ export class OpenAIAdapter implements LLMAdapter {
       createOptions.tool_choice = 'auto';
     }
 
-    const response = await this.client.chat.completions.create(createOptions);
+    if (typeof this.maxOutputTokens === 'number' && Number.isFinite(this.maxOutputTokens)) {
+      createOptions.max_output_tokens = this.maxOutputTokens;
+    }
 
-    const choice = response.choices[0];
-    if (!choice) {
+    const response = await this.client.responses.create(createOptions);
+    const toolCall = extractFirstFunctionCall(response);
+    if (!toolCall) {
       return null;
     }
 
-    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
-      const toolCall = choice.message.tool_calls[0];
-      if (toolCall && toolCall.type === 'function' && toolCall.function) {
-        try {
-          const args = JSON.parse(toolCall.function.arguments);
-          return {
-            tool: toolCall.function.name,
-            args,
-          };
-        } catch (e) {
-          console.error('Failed to parse tool arguments from OpenAI', e);
-          return null;
-        }
-      }
+    const args = parseToolArguments(toolCall.arguments);
+    if (!args) {
+      return null;
     }
 
-    return null;
+    return {
+      tool: toolCall.name,
+      args,
+    };
   }
 }
 
