@@ -799,7 +799,9 @@ const pickFallbackDecision = (params: {
     if (params.role === 'attacker') {
       if (names.includes('send_message')) {
         const content =
-          ATTACKER_FALLBACK_MESSAGES[(params.seed + params.step) % ATTACKER_FALLBACK_MESSAGES.length];
+          ATTACKER_FALLBACK_MESSAGES[
+            (params.seed + params.step) % ATTACKER_FALLBACK_MESSAGES.length
+          ];
         return {
           tool: 'send_message',
           args: { content },
