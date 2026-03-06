@@ -101,7 +101,7 @@ export OPENAI_API_KEY=...
 2. OpenAI ベンチ実行
 
 ```bash
-pnpm test:bench:agents:openai
+pnpm test:bench:agents:llm
 ```
 
 オプション環境変数:
@@ -110,6 +110,26 @@ pnpm test:bench:agents:openai
 - `OPENAI_BENCH_MATCH_COUNT` (デフォルト: `1`)
 - `OPENAI_MAX_OUTPUT_TOKENS` (デフォルト: `220`)
 - `OPENAI_RESPONSES_URL` (デフォルト: `https://api.openai.com/v1/responses`)
+- `OPENAI_INPUT_COST_PER_1M_TOKENS` / `OPENAI_OUTPUT_COST_PER_1M_TOKENS` (コスト見積もり用)
+
+LLM ベンチは `RUN_LLM_BENCH=true` でも有効化できます。`/v1/tokens` の 429 は共有のリトライヘルパーで吸収し、`tools/agent-runner` の JSON トレースログは `connect_token` / API key / secret / reasoning 系フィールドを自動マスクします。
+
+### Agent Runner
+
+自律エージェント用ランナーは `tools/agent-runner` にあります。ビルド後に以下で実行できます。
+
+```bash
+pnpm --filter @moltgames/agent-runner build
+pnpm --filter @moltgames/agent-runner exec moltgame-runner run \
+  --url ws://localhost:8080/v1/ws \
+  --token <connect-token> \
+  --llm-provider openai \
+  --model gpt-4.1-mini \
+  --agent-id agent-1 \
+  --match-id local-match-1
+```
+
+`SERVICE_UNAVAILABLE` は指数バックオフで再試行し、`DRAINING` 中は新規アクション送信を止めて再接続を待機します。
 
 ## CI 品質ゲート
 

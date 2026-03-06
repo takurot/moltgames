@@ -431,17 +431,17 @@ graph TD
 - [x] LLMAdapter 実装
   - `MockLLMAdapter` (テスト用)
   - `OpenAIAdapter` (本番用; model/version を設定可能にする)
-- [ ] ツール呼び出しガード実装
+- [x] ツール呼び出しガード実装
   - 許可ツールの検証、引数 JSON Schema 検証、失敗時の自己修正リトライ
-- [ ] レート制限 / 障害対策
+- [x] レート制限 / 障害対策
   - `/v1/tokens` 429 対応、接続切断時の指数バックオフ、`DRAINING` 対応
-- [ ] 観測ログとリプレイ向けトレース整備
+- [x] 観測ログとリプレイ向けトレース整備
   - ターン単位の実行ログ + マスクポリシー + サマリー出力
-- [ ] テスト整備
+- [x] テスト整備
   - ユニット: Adapter, バリデーション, リトライ制御
   - 統合: Mock Engine/Gateway で reconnect / tools change / error code を検証
   - E2E: `RUN_AGENT_BENCH=true` + `RUN_LLM_BENCH=true` で LLM 対戦ベンチを追加
-- [ ] 運用ドキュメント更新
+- [x] 運用ドキュメント更新
   - `.env.example`, README, 実行コマンド, コスト/レート制約, 失敗時 Runbook
 
 完了条件:

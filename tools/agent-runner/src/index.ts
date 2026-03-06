@@ -9,6 +9,7 @@ import {
 } from './runner.js';
 import { LLMActionPlanner, type LLMActionPlannerOptions } from './planners/llm-planner.js';
 import { OpenAIAdapter } from './adapters/llm-adapter.js';
+import { ConsoleJsonTraceLogger } from './logging/trace-logger.js';
 
 const program = new Command();
 
@@ -20,9 +21,13 @@ interface RunCommandOptions {
   sessionId?: string;
   reconnectInitialMs: string;
   reconnectMaxMs: string;
+  responseRetryInitialMs: string;
+  responseRetryMaxMs: string;
   llmProvider?: string;
   model?: string;
   systemPrompt?: string;
+  agentId?: string;
+  matchId?: string;
 }
 
 program
@@ -33,9 +38,17 @@ program
   .option('-s, --session-id <sessionId>', 'Resume existing session')
   .option('--reconnect-initial-ms <ms>', 'Initial reconnect delay in milliseconds', '1000')
   .option('--reconnect-max-ms <ms>', 'Maximum reconnect delay in milliseconds', '8000')
+  .option(
+    '--response-retry-initial-ms <ms>',
+    'Initial retry delay after retryable tool errors',
+    '250',
+  )
+  .option('--response-retry-max-ms <ms>', 'Maximum retry delay after retryable tool errors', '2000')
   .option('--llm-provider <provider>', 'LLM Provider to use (e.g. "openai")')
   .option('--model <model>', 'Model name to use with the provider')
   .option('--system-prompt <prompt>', 'System prompt to initialize the agent with')
+  .option('--agent-id <agentId>', 'Agent identifier for trace logs')
+  .option('--match-id <matchId>', 'Match identifier for trace logs')
   .action(async (options: RunCommandOptions) => {
     if (!options.token && !options.sessionId) {
       throw new Error('Either --token or --session-id must be provided');
@@ -63,6 +76,14 @@ program
       url: options.url,
       reconnectInitialDelayMs: Number.parseInt(options.reconnectInitialMs, 10),
       reconnectMaxDelayMs: Number.parseInt(options.reconnectMaxMs, 10),
+      responseRetryInitialDelayMs: Number.parseInt(options.responseRetryInitialMs, 10),
+      responseRetryMaxDelayMs: Number.parseInt(options.responseRetryMaxMs, 10),
+      traceLogger: new ConsoleJsonTraceLogger({
+        agentId: options.agentId,
+        matchId: options.matchId,
+        provider: options.llmProvider,
+        model: options.model,
+      }),
       planner,
     };
 
