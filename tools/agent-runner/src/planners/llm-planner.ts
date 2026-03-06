@@ -1,6 +1,6 @@
-import Ajv from 'ajv';
 import type { ActionPlanner, ActionPlannerContext, RunnerAction } from '../runner.js';
 import type { LLMAdapter } from '../adapters/llm-adapter.js';
+import { ToolCallGuard } from '../guard/tool-call-guard.js';
 
 export interface LLMActionPlannerOptions {
   adapter: LLMAdapter;
@@ -12,7 +12,7 @@ export class LLMActionPlanner implements ActionPlanner {
   private adapter: LLMAdapter;
   private systemPrompt?: string;
   private maxRetries: number;
-  private ajv: Ajv;
+  private guard: ToolCallGuard;
   // In a real application, you'd likely want to maintain history
   // For this isolated planner, we keep a very basic conversation thread
   private history: { role: 'user' | 'assistant' | 'system'; content: string }[] = [];
@@ -23,8 +23,7 @@ export class LLMActionPlanner implements ActionPlanner {
       this.systemPrompt = options.systemPrompt;
     }
     this.maxRetries = options.maxRetries ?? 3;
-    // json schema logic
-    this.ajv = new Ajv({ strict: false });
+    this.guard = new ToolCallGuard();
   }
 
   async decide(context: ActionPlannerContext): Promise<RunnerAction | null> {
@@ -65,20 +64,12 @@ export class LLMActionPlanner implements ActionPlanner {
         continue;
       }
 
-      const selectedTool = tools.find((t) => t.name === llmAction.tool);
-      if (!selectedTool) {
-        lastError = `The tool "${llmAction.tool}" is not available. Please choose from: ${tools.map((t) => t.name).join(', ')}`;
-        retryCount++;
-        continue;
-      }
-
-      // Validate arguments against JSON Schema using Ajv
-      const validate = this.ajv.compile(selectedTool.inputSchema);
-      const isValid = validate(llmAction.args);
-
-      if (!isValid) {
-        const errors = this.ajv.errorsText(validate.errors);
-        lastError = `Invalid arguments for tool "${selectedTool.name}": ${errors}. Please correct the arguments according to the schema.`;
+      const validation = this.guard.validate({
+        action: llmAction,
+        tools,
+      });
+      if (!validation.ok) {
+        lastError = validation.reason;
         retryCount++;
         continue;
       }

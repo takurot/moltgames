@@ -87,6 +87,16 @@ const getSocketAt = (index: number): TestSocket => {
   return socket;
 };
 
+const buildToolDefinition = (name: string) => ({
+  name,
+  description: `${name} description`,
+  version: '1.0.0',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: true,
+  },
+});
+
 describe('Runner', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -142,11 +152,11 @@ describe('Runner', () => {
     await connectPromise;
 
     socket.triggerMessage({ type: 'session/ready', session_id: 'session-1' });
-    socket.triggerMessage({ type: 'tools/list', tools: [{ name: 'send_message' }] });
+    socket.triggerMessage({ type: 'tools/list', tools: [buildToolDefinition('send_message')] });
     await Promise.resolve();
 
     expect(socket.sentPayloads).toHaveLength(1);
-    socket.triggerMessage({ type: 'tools/list_changed', tools: [{ name: 'respond' }] });
+    socket.triggerMessage({ type: 'tools/list_changed', tools: [buildToolDefinition('respond')] });
     await Promise.resolve();
     expect(socket.sentPayloads).toHaveLength(1);
 
@@ -209,7 +219,10 @@ describe('Runner', () => {
     await connectPromise;
 
     firstSocket.triggerMessage({ type: 'session/ready', session_id: 'session-1' });
-    firstSocket.triggerMessage({ type: 'tools/list', tools: [{ name: 'send_message' }] });
+    firstSocket.triggerMessage({
+      type: 'tools/list',
+      tools: [buildToolDefinition('send_message')],
+    });
     await Promise.resolve();
     expect(firstSocket.sentPayloads).toHaveLength(1);
 
@@ -219,7 +232,7 @@ describe('Runner', () => {
     const secondSocket = getSocketAt(1);
     secondSocket.triggerOpen();
     secondSocket.triggerMessage({ type: 'session/resumed', session_id: 'session-1' });
-    secondSocket.triggerMessage({ type: 'tools/list', tools: [{ name: 'respond' }] });
+    secondSocket.triggerMessage({ type: 'tools/list', tools: [buildToolDefinition('respond')] });
     await Promise.resolve();
 
     expect(secondSocket.sentPayloads).toHaveLength(1);

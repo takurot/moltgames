@@ -79,7 +79,7 @@ docker compose down
 
 ```bash
 export OPENAI_API_KEY="<your-api-key>"
-pnpm test:bench:agents:openai
+pnpm test:bench:agents:llm
 ```
 
 This runs a small sample (`OPENAI_BENCH_MATCH_COUNT=1`) to confirm end-to-end OpenAI flow.
@@ -88,15 +88,15 @@ This runs a small sample (`OPENAI_BENCH_MATCH_COUNT=1`) to confirm end-to-end Op
 
 ```bash
 export OPENAI_API_KEY="<your-api-key>"
-pnpm test:bench:agents:openai:perf
+pnpm test:bench:agents:llm:perf
 ```
 
 Dilemma Poker variants:
 
 ```bash
 export OPENAI_API_KEY="<your-api-key>"
-pnpm test:bench:agents:openai:dilemma
-pnpm test:bench:agents:openai:perf:dilemma
+pnpm test:bench:agents:llm:dilemma
+pnpm test:bench:agents:llm:perf:dilemma
 ```
 
 This runs a larger sample (`OPENAI_BENCH_MATCH_COUNT=20`) and prints:
@@ -117,6 +117,8 @@ This runs a larger sample (`OPENAI_BENCH_MATCH_COUNT=20`) and prints:
 - `OPENAI_OUTPUT_COST_PER_1M_TOKENS` (default: `0`)
 
 If pricing env vars are set, benchmark output includes estimated USD cost.
+
+`RUN_LLM_BENCH=true` is supported as the canonical bench flag. `RUN_OPENAI_BENCH=true` remains available as a compatibility alias.
 
 ## 5. Troubleshooting
 
@@ -143,3 +145,24 @@ Fix:
 ```bash
 docker compose run -d -p 8080:8080 -e NODE_ENV=development gateway
 ```
+
+### 5.3 `HTTP 429 POST /v1/tokens`
+
+Cause:
+
+- Gateway token issuance is rate-limited while repeated bench sessions are starting.
+
+Fix:
+
+- Re-run the bench with the existing scripts. The shared retry helper honors `Retry-After` and backs off automatically.
+- If 429s persist, reduce `BENCH_MATCH_COUNT` or wait for the rate-limit window to reset.
+
+### 5.4 Secret or token values appearing in runner logs
+
+Cause:
+
+- Structured trace logs from `tools/agent-runner` were not used, or a custom logger bypassed the built-in masking policy.
+
+Fix:
+
+- Use `moltgame-runner run` or the default bench logging path so `connect_token`, API keys, prompt-injection secrets, and reasoning-like fields are redacted before output.

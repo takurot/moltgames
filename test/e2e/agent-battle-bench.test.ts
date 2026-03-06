@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
+import { requestJsonWithRetry } from '../../tools/agent-runner/src/http/request-json.js';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8080';
 const GATEWAY_WS_URL = process.env.GATEWAY_WS_URL || 'ws://localhost:8080/v1/ws';
@@ -17,6 +18,7 @@ const OPENAI_BENCH_MATCH_COUNT = Number.parseInt(
 );
 const RUN_AGENT_BENCH = process.env.RUN_AGENT_BENCH === 'true';
 const RUN_OPENAI_BENCH = process.env.RUN_OPENAI_BENCH === 'true';
+const RUN_LLM_BENCH = process.env.RUN_LLM_BENCH === 'true' || RUN_OPENAI_BENCH;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
@@ -270,87 +272,10 @@ const isToolDefinition = (value: unknown): value is BenchToolDefinition => {
   return true;
 };
 
-const parseRetryDelayMs = (
-  status: number,
-  headers: Headers,
-  data: unknown,
-  attempt: number,
-): number => {
-  if (status === 429) {
-    const retryAfterHeader = headers.get('retry-after');
-    if (retryAfterHeader) {
-      const asSeconds = Number.parseInt(retryAfterHeader, 10);
-      if (Number.isFinite(asSeconds) && asSeconds >= 0) {
-        return asSeconds * 1000;
-      }
-    }
-
-    if (isRecord(data) && typeof data.message === 'string') {
-      const match = data.message.match(/retry in (\d+)\s*seconds?/i);
-      if (match) {
-        const asSeconds = Number.parseInt(match[1], 10);
-        if (Number.isFinite(asSeconds) && asSeconds >= 0) {
-          return asSeconds * 1000;
-        }
-      }
-    }
-  }
-
-  return Math.min(1_000 * 2 ** attempt, 8_000);
-};
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-
-const requestJson = async (params: {
-  url: string;
-  method: 'GET' | 'POST';
-  body?: unknown;
-  headers?: Record<string, string>;
-  maxRetries?: number;
-}): Promise<{ status: number; data: unknown }> => {
-  const maxRetries = params.maxRetries ?? 0;
-  let attempt = 0;
-
-  for (;;) {
-    const response = await fetch(params.url, {
-      method: params.method,
-      headers: {
-        ...(params.body ? { 'content-type': 'application/json' } : {}),
-        ...params.headers,
-      },
-      body: params.body === undefined ? undefined : JSON.stringify(params.body),
-    });
-
-    const text = await response.text();
-    let data: unknown = null;
-
-    if (text.length > 0) {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = text;
-      }
-    }
-
-    if (response.ok) {
-      return { status: response.status, data };
-    }
-
-    if (attempt < maxRetries) {
-      const delayMs = parseRetryDelayMs(response.status, response.headers, data, attempt);
-      attempt += 1;
-      await sleep(delayMs);
-      continue;
-    }
-
-    throw new Error(
-      `HTTP ${response.status} ${params.method} ${params.url}: ${JSON.stringify(data)}`,
-    );
-  }
-};
 
 const waitFor = async (
   condition: () => boolean,
@@ -580,7 +505,7 @@ const closeSocket = async (socket: WebSocket): Promise<void> => {
 };
 
 const issueConnectToken = async (matchId: string, agentId: string): Promise<string> => {
-  const response = await requestJson({
+  const response = await requestJsonWithRetry({
     url: `${GATEWAY_URL}/v1/tokens`,
     method: 'POST',
     body: {
@@ -1010,7 +935,7 @@ const decideWithOpenAI = async (params: {
   ].join('\n');
 
   try {
-    const response = await requestJson({
+    const response = await requestJsonWithRetry({
       url: OPENAI_RESPONSES_URL,
       method: 'POST',
       headers: {
@@ -1446,7 +1371,7 @@ const runSingleMatch = async ({
     console.log(`[progress][${matchId}] started game=${gameId} mode=${mode} seed=${seed}`);
   }
 
-  await requestJson({
+  await requestJsonWithRetry({
     url: `${ENGINE_URL}/matches/${matchId}/start`,
     method: 'POST',
     body: {
@@ -1618,10 +1543,9 @@ const getDeterministicExpectation = (gameId: BenchGameId) =>
     : { winner: 'agent-2', reason: 'Secret guess limit reached', steps: 5 };
 
 const describeBench = RUN_AGENT_BENCH ? describe : describe.skip;
-const describeOpenAISmokeBench =
-  RUN_OPENAI_BENCH && BENCH_MODE === 'smoke' ? describe : describe.skip;
+const describeOpenAISmokeBench = RUN_LLM_BENCH && BENCH_MODE === 'smoke' ? describe : describe.skip;
 const describeOpenAIPerformanceBench =
-  RUN_OPENAI_BENCH && BENCH_MODE === 'performance' ? describe : describe.skip;
+  RUN_LLM_BENCH && BENCH_MODE === 'performance' ? describe : describe.skip;
 
 describeBench('Agent battle bench', () => {
   it('runs multiple deterministic matches and returns aggregate results', async () => {
