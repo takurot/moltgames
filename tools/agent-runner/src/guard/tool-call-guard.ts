@@ -74,7 +74,11 @@ export class ToolCallGuard {
   }
 
   private getValidator(tool: MCPToolDefinition): ValidateFunction {
-    const cacheKey = `${tool.name}:${tool.version}`;
+    const cacheKey = JSON.stringify({
+      name: tool.name,
+      version: tool.version,
+      inputSchema: tool.inputSchema,
+    });
     const cached = this.validators.get(cacheKey);
     if (cached) {
       return cached;

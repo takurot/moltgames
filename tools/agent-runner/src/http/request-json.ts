@@ -3,6 +3,34 @@ const MAX_RETRY_DELAY_MS = 8_000;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
+const parseRetryAfterHeaderMs = (value: string): number | null => {
+  const asSeconds = Number.parseInt(value, 10);
+  if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+    return asSeconds * 1000;
+  }
+
+  const asTimestamp = Date.parse(value);
+  if (Number.isFinite(asTimestamp)) {
+    return Math.max(0, asTimestamp - Date.now());
+  }
+
+  return null;
+};
+
+const getRetryMessage = (data: unknown): string | null => {
+  if (isRecord(data)) {
+    if (typeof data.message === 'string') {
+      return data.message;
+    }
+
+    if (isRecord(data.error) && typeof data.error.message === 'string') {
+      return data.error.message;
+    }
+  }
+
+  return null;
+};
+
 export const parseRetryDelayMs = (
   status: number,
   headers: Headers,
@@ -12,14 +40,15 @@ export const parseRetryDelayMs = (
   if (status === 429) {
     const retryAfterHeader = headers.get('retry-after');
     if (retryAfterHeader) {
-      const asSeconds = Number.parseInt(retryAfterHeader, 10);
-      if (Number.isFinite(asSeconds) && asSeconds >= 0) {
-        return asSeconds * 1000;
+      const retryAfterMs = parseRetryAfterHeaderMs(retryAfterHeader);
+      if (retryAfterMs !== null) {
+        return retryAfterMs;
       }
     }
 
-    if (isRecord(data) && typeof data.message === 'string') {
-      const match = data.message.match(/retry in (\d+)\s*seconds?/i);
+    const retryMessage = getRetryMessage(data);
+    if (retryMessage) {
+      const match = retryMessage.match(/retry in (\d+)\s*seconds?/i);
       const secondsText = match?.[1];
       if (secondsText) {
         const asSeconds = Number.parseInt(secondsText, 10);

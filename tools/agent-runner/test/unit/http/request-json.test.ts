@@ -8,6 +8,30 @@ describe('parseRetryDelayMs', () => {
     expect(parseRetryDelayMs(429, headers, null, 0)).toBe(3000);
   });
 
+  it('supports Retry-After header dates for 429 responses', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-06T12:00:00.000Z'));
+
+    const headers = new Headers({ 'retry-after': 'Fri, 06 Mar 2026 12:00:02 GMT' });
+
+    expect(parseRetryDelayMs(429, headers, null, 0)).toBe(2000);
+  });
+
+  it('reads retry hints from nested error.message payloads', () => {
+    expect(
+      parseRetryDelayMs(
+        429,
+        new Headers(),
+        {
+          error: {
+            message: 'Rate limit hit, retry in 4 seconds',
+          },
+        },
+        0,
+      ),
+    ).toBe(4000);
+  });
+
   it('falls back to exponential backoff when Retry-After is unavailable', () => {
     expect(parseRetryDelayMs(503, new Headers(), null, 0)).toBe(1000);
     expect(parseRetryDelayMs(503, new Headers(), null, 3)).toBe(8000);

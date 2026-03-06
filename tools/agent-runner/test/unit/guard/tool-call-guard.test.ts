@@ -80,4 +80,54 @@ describe('ToolCallGuard', () => {
     expect(result.reason).toContain('send_message');
     expect(result.reason).toContain('content');
   });
+
+  it('rebuilds the validator when the schema changes for the same tool version', () => {
+    const originalTool: MCPToolDefinition = {
+      name: 'send_message',
+      description: 'Send a message',
+      version: '1.0.0',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          content: { type: 'string' },
+        },
+        required: ['content'],
+        additionalProperties: false,
+      },
+    };
+    const changedTool: MCPToolDefinition = {
+      name: 'send_message',
+      description: 'Send a message',
+      version: '1.0.0',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          payload: { type: 'string' },
+        },
+        required: ['payload'],
+        additionalProperties: false,
+      },
+    };
+
+    expect(
+      guard.validate({
+        action: {
+          tool: 'send_message',
+          args: { content: 'hello' },
+        },
+        tools: [originalTool],
+      }),
+    ).toMatchObject({ ok: true });
+
+    const result = guard.validate({
+      action: {
+        tool: 'send_message',
+        args: { content: 'hello' },
+      },
+      tools: [changedTool],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('payload');
+  });
 });
