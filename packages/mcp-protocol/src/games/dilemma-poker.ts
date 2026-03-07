@@ -1,4 +1,4 @@
-import { JsonSchemaObject } from '../schema';
+import { JsonSchemaObject } from '../schema.js';
 
 export const DILEMMA_POKER_NEGOTIATE_SCHEMA: JsonSchemaObject = {
   type: 'object',
