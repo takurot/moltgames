@@ -12,6 +12,7 @@ export const DILEMMA_POKER_NEGOTIATE_SCHEMA: JsonSchemaObject = {
   },
   required: ['message'],
   additionalProperties: false,
+  description: 'Send a message to the opponent during the negotiation phase.',
 };
 
 export const DILEMMA_POKER_COMMIT_ACTION_SCHEMA: JsonSchemaObject = {
@@ -25,6 +26,7 @@ export const DILEMMA_POKER_COMMIT_ACTION_SCHEMA: JsonSchemaObject = {
   },
   required: ['action'],
   additionalProperties: false,
+  description: 'The final action to take for this round: cooperate or defect.',
 };
 
 export const DILEMMA_POKER_GET_STATUS_SCHEMA: JsonSchemaObject = {
