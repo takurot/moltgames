@@ -5,7 +5,12 @@ import {
   type TerminationResult,
   type ValidationResult,
 } from '../../framework/types.js';
-import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
+import {
+  type MCPToolDefinition,
+  DILEMMA_POKER_GET_STATUS_SCHEMA,
+  DILEMMA_POKER_NEGOTIATE_SCHEMA,
+  DILEMMA_POKER_COMMIT_ACTION_SCHEMA,
+} from '@moltgames/mcp-protocol';
 import type { JsonValue } from '@moltgames/domain';
 
 export type PlayerActionChoice = 'cooperate' | 'defect' | null;
@@ -98,11 +103,7 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
       name: 'get_status',
       description: 'Gets your current status, including chip count and current round.',
       version: '1.0.0',
-      inputSchema: {
-        type: 'object',
-        properties: {},
-        additionalProperties: false,
-      },
+      inputSchema: DILEMMA_POKER_GET_STATUS_SCHEMA,
     });
 
     if (state.phase === 'negotiation') {
@@ -110,28 +111,14 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
         name: 'negotiate',
         description: 'Send a message to the opponent during the negotiation phase.',
         version: '1.0.0',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            message: { type: 'string', minLength: 1, maxLength: 500 },
-          },
-          required: ['message'],
-          additionalProperties: false,
-        },
+        inputSchema: DILEMMA_POKER_NEGOTIATE_SCHEMA,
       });
     } else if (state.phase === 'action') {
       tools.push({
         name: 'commit_action',
         description: 'The final action to take for this round: cooperate or defect.',
         version: '1.0.0',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            action: { type: 'string', enum: ['cooperate', 'defect'] },
-          },
-          required: ['action'],
-          additionalProperties: false,
-        },
+        inputSchema: DILEMMA_POKER_COMMIT_ACTION_SCHEMA,
       });
     }
 
