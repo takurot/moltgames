@@ -1,0 +1,64 @@
+{
+  "gameId": "dilemma-poker",
+  "ruleId": "standard",
+  "ruleVersion": "1.0.0",
+  "turnLimit": 20,
+  "turnTimeoutSeconds": 30,
+  "tools": [
+    {
+      "name": "negotiate",
+      "description": "Send a message to the opponent during negotiation",
+      "version": "1.0.0",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "commit_action",
+      "description": "Commit the final action for the round",
+      "version": "1.0.0",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["cooperate", "defect"]
+          }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_status",
+      "description": "Get your current chip and round status",
+      "version": "1.0.0",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "parameters": {
+    "initialChips": 0,
+    "maxRounds": 5,
+    "negotiationPhaseMessagesPerRound": 2
+  },
+  "termination": {
+    "type": "max-rounds",
+    "reason": "Max rounds reached"
+  },
+  "redactionPolicy": {
+    "type": "hide-pending-actions"
+  }
+}

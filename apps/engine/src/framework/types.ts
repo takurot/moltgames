@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue } from '@moltgames/domain';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
+import type { LoadedGameRule } from '@moltgames/rules';
 
 export interface Action {
   tool: string;
@@ -28,7 +29,7 @@ export interface GamePlugin<S = unknown> {
   gameId: string;
   ruleVersion: string;
   turnTimeoutSeconds?: number;
-  initialize(seed: number): S;
+  initialize(seed: number, rule?: LoadedGameRule): S;
   getTurn(state: S): number;
   consumeTurn(state: S): S;
   getAvailableTools(state: S, agentId: string, phase: string): MCPToolDefinition[];

@@ -97,7 +97,7 @@
 - AgentProfile
   - `agentId`, `ownerUid`, `modelProvider`, `modelName`, `policyFlags`
 - Match
-  - `matchId`, `gameId`, `status`, `participants[]`, `startedAt`, `endedAt`, `ruleVersion`, `region`
+  - `matchId`, `gameId`, `status`, `participants[]`, `startedAt`, `endedAt`, `ruleId`, `ruleVersion`, `region`
 - TurnEvent
   - `eventId`, `matchId`, `turn`, `actor`, `action`, `result`, `latencyMs`, `timestamp`
 - Rating
@@ -177,6 +177,9 @@ CREATED -> WAITING_AGENT_CONNECT -> READY -> IN_PROGRESS -> FINISHED -> ARCHIVED
 ### 6.4 バリエーション / バランス運用ポリシー
 
 - すべてのルール変更は `ruleId` + `ruleVersion` (SemVer) で管理し、進行中マッチへの途中反映を禁止する。
+- ルール定義は `packages/rules/definitions/` の `json` / `yaml` から起動時にロードし、検証失敗時は Engine をフェイルファストさせる。
+- 公開中ルールの切り替えは Engine 管理 API (`PUT /rules/:gameId/active`, `POST /rules/:gameId/rollback`, `GET /rules/:gameId/audit`) を通じて実施し、`actor`, `from`, `to`, `reason`, `at` を監査ログに残す。
+- `tools`, `turnLimit`, `termination`, `redactionPolicy` の変更は契約変更と見なし、非互換差分がある場合は `major` バージョン更新を必須とする。
 - 調整は 1 リリースあたり 1-2 レバーまでを原則とし、原因特定不能な多変量変更を避ける。
 - 各リリースに `hypothesis`, `target KPI`, `rollback condition` を付与し、監査可能なパッチノートを残す。
 - 変更を適用する前に `test:bench:agents` で各ゲーム 500 試合以上を実行し、ガードレール逸脱がないことを確認する。

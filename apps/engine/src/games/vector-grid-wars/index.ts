@@ -7,7 +7,88 @@ import {
 } from '../../framework/types.js';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
 import type { JsonValue } from '@moltgames/domain';
+import type { LoadedGameRule } from '@moltgames/rules';
+
 import { LLMJudge } from './judge.js';
+
+const DEFAULT_RULE: LoadedGameRule = {
+  gameId: 'vector-grid-wars',
+  ruleId: 'standard',
+  ruleVersion: '1.0.0',
+  turnLimit: 30,
+  turnTimeoutSeconds: 30,
+  tools: [
+    {
+      name: 'get_board',
+      description: 'Get the current state of the 10x10 board containing owners and concepts',
+      version: '1.0.0',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'place_unit',
+      description:
+        'Place a new unit on an empty cell with a semantic concept (e.g., "Fire Wall", "Defense Tower")',
+      version: '1.0.0',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          x: { type: 'integer', minimum: 0, maximum: 9 },
+          y: { type: 'integer', minimum: 0, maximum: 9 },
+          concept: { type: 'string', minLength: 1, maxLength: 50 },
+        },
+        required: ['x', 'y', 'concept'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'move_unit',
+      description:
+        'Move an existing unit you own to an adjacent empty cell (horizontal or vertical, distance 1)',
+      version: '1.0.0',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fromX: { type: 'integer', minimum: 0, maximum: 9 },
+          fromY: { type: 'integer', minimum: 0, maximum: 9 },
+          toX: { type: 'integer', minimum: 0, maximum: 9 },
+          toY: { type: 'integer', minimum: 0, maximum: 9 },
+        },
+        required: ['fromX', 'fromY', 'toX', 'toY'],
+        additionalProperties: false,
+      },
+    },
+  ],
+  parameters: {
+    gridSize: 10,
+    conceptMaxLength: 50,
+  },
+  termination: {
+    type: 'vector-grid-wars',
+    judgeRuns: 2,
+  },
+  redactionPolicy: {
+    type: 'none',
+  },
+};
+
+const getNumberParameter = (
+  source: Record<string, unknown>,
+  key: string,
+  fallback: number,
+): number => {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+};
+
+const pickTools = (
+  tools: readonly MCPToolDefinition[],
+  names: readonly string[],
+): MCPToolDefinition[] => tools.filter((tool) => names.includes(tool.name));
 
 export interface Cell {
   owner: string | null;
@@ -15,6 +96,11 @@ export interface Cell {
 }
 
 export interface VectorGridWarsState {
+  ruleId: string;
+  ruleVersion: string;
+  toolDefinitions: MCPToolDefinition[];
+  gridSize: number;
+  conceptMaxLength: number;
   grid: Cell[][];
   agent1Id: string;
   agent2Id: string;
@@ -31,17 +117,25 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
 
   private judge = new LLMJudge();
 
-  initialize(_seed: number): VectorGridWarsState {
-    const grid: Cell[][] = Array.from({ length: 10 }, () =>
-      Array.from({ length: 10 }, () => ({ owner: null, concept: null })),
+  initialize(_seed: number, rule: LoadedGameRule = DEFAULT_RULE): VectorGridWarsState {
+    const parameters = rule.parameters as Record<string, unknown>;
+    const gridSize = getNumberParameter(parameters, 'gridSize', 10);
+    const conceptMaxLength = getNumberParameter(parameters, 'conceptMaxLength', 50);
+    const grid: Cell[][] = Array.from({ length: gridSize }, () =>
+      Array.from({ length: gridSize }, () => ({ owner: null, concept: null })),
     );
 
     return {
+      ruleId: rule.ruleId,
+      ruleVersion: rule.ruleVersion,
+      toolDefinitions: [...rule.tools],
+      gridSize,
+      conceptMaxLength,
       grid,
       agent1Id: 'agent-1',
       agent2Id: 'agent-2',
       turn: 1,
-      maxTurns: 30, // 15 moves per player
+      maxTurns: rule.turnLimit,
       gameOver: false,
       terminationResult: null,
     };
@@ -69,52 +163,10 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
     const isP2 = agentId === state.agent2Id;
 
     const tools: MCPToolDefinition[] = [];
-
-    // Always allow getting the board state
-    tools.push({
-      name: 'get_board',
-      description: 'Get the current state of the 10x10 board containing owners and concepts',
-      version: '1.0.0',
-      inputSchema: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
-    });
+    tools.push(...pickTools(state.toolDefinitions, ['get_board']));
 
     if ((isP1Turn && isP1) || (isP2Turn && isP2)) {
-      tools.push({
-        name: 'place_unit',
-        description:
-          'Place a new unit on an empty cell with a semantic concept (e.g., "Fire Wall", "Defense Tower")',
-        version: '1.0.0',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            x: { type: 'integer', minimum: 0, maximum: 9 },
-            y: { type: 'integer', minimum: 0, maximum: 9 },
-            concept: { type: 'string', minLength: 1, maxLength: 50 },
-          },
-          required: ['x', 'y', 'concept'],
-        },
-      });
-
-      tools.push({
-        name: 'move_unit',
-        description:
-          'Move an existing unit you own to an adjacent empty cell (horizontal or vertical, distance 1)',
-        version: '1.0.0',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            fromX: { type: 'integer', minimum: 0, maximum: 9 },
-            fromY: { type: 'integer', minimum: 0, maximum: 9 },
-            toX: { type: 'integer', minimum: 0, maximum: 9 },
-            toY: { type: 'integer', minimum: 0, maximum: 9 },
-          },
-          required: ['fromX', 'fromY', 'toX', 'toY'],
-        },
-      });
+      tools.push(...pickTools(state.toolDefinitions, ['place_unit', 'move_unit']));
     }
 
     return tools;
@@ -141,11 +193,14 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
       const y = typeof action.args.y === 'number' ? action.args.y : -1;
       const concept = typeof action.args.concept === 'string' ? action.args.concept : '';
 
-      if (!this.inBounds(x, y)) {
+      if (!this.inBounds(x, y, state.gridSize)) {
         return { valid: false, error: 'Target position out of bounds' };
       }
       if (typeof concept !== 'string' || concept.trim() === '') {
         return { valid: false, error: 'Invalid concept' };
+      }
+      if (concept.length > state.conceptMaxLength) {
+        return { valid: false, error: 'Concept exceeds maximum length' };
       }
       const cell = state.grid[y]?.[x];
       if (!cell || cell.owner !== null) {
@@ -154,51 +209,42 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
       return { valid: true };
     }
 
-    if (action.tool === 'move_unit') {
-      const fromX = typeof action.args.fromX === 'number' ? action.args.fromX : -1;
-      const fromY = typeof action.args.fromY === 'number' ? action.args.fromY : -1;
-      const toX = typeof action.args.toX === 'number' ? action.args.toX : -1;
-      const toY = typeof action.args.toY === 'number' ? action.args.toY : -1;
+    const fromX = typeof action.args.fromX === 'number' ? action.args.fromX : -1;
+    const fromY = typeof action.args.fromY === 'number' ? action.args.fromY : -1;
+    const toX = typeof action.args.toX === 'number' ? action.args.toX : -1;
+    const toY = typeof action.args.toY === 'number' ? action.args.toY : -1;
 
-      if (!this.inBounds(fromX, fromY) || !this.inBounds(toX, toY)) {
-        return { valid: false, error: 'Position out of bounds' };
-      }
-
-      const sourceCell = state.grid[fromY]?.[fromX];
-      if (!sourceCell || sourceCell.owner !== currentPlayerId) {
-        return {
-          valid: false,
-          error: 'You do not own the unit at the source position or it is invalid',
-        };
-      }
-
-      const targetCell = state.grid[toY]?.[toX];
-      if (!targetCell || targetCell.owner !== null) {
-        return { valid: false, error: 'Target cell is already occupied or invalid' };
-      }
-
-      const dx = Math.abs(toX - fromX);
-      const dy = Math.abs(toY - fromY);
-      if ((dx === 1 && dy === 0) || (dx === 0 && dy === 1)) {
-        return { valid: true };
-      } else {
-        return {
-          valid: false,
-          error: 'Units can only move to adjacent cells (distance 1, no diagonal)',
-        };
-      }
+    if (!this.inBounds(fromX, fromY, state.gridSize) || !this.inBounds(toX, toY, state.gridSize)) {
+      return { valid: false, error: 'Position out of bounds' };
     }
 
-    return { valid: false, error: 'Unknown validation failure' };
+    const sourceCell = state.grid[fromY]?.[fromX];
+    if (!sourceCell || sourceCell.owner !== currentPlayerId) {
+      return {
+        valid: false,
+        error: 'You do not own the unit at the source position or it is invalid',
+      };
+    }
+
+    const targetCell = state.grid[toY]?.[toX];
+    if (!targetCell || targetCell.owner !== null) {
+      return { valid: false, error: 'Target cell is already occupied or invalid' };
+    }
+
+    const dx = Math.abs(toX - fromX);
+    const dy = Math.abs(toY - fromY);
+    if ((dx === 1 && dy === 0) || (dx === 0 && dy === 1)) {
+      return { valid: true };
+    }
+
+    return {
+      valid: false,
+      error: 'Units can only move to adjacent cells (distance 1, no diagonal)',
+    };
   }
 
   applyAction(state: VectorGridWarsState, action: Action): ApplyActionResult<VectorGridWarsState> {
     if (action.tool === 'get_board') {
-      // get_board does not consume a turn natively, but the engine protocol treats it as an action.
-      // So we will just return the board and NOT increment the turn.
-      // Wait, processAction increments turn ? No, engine does plugin.getTurn(newState).
-      // If we don't increment turn, get_board is a free action but consumes an action API call.
-      // Let's implement it as a free action (turn doesn't advance).
       return {
         state,
         result: {
@@ -225,7 +271,7 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
         };
       }
       result = { status: 'placed', x, y, concept };
-      nextState.turn++;
+      nextState.turn += 1;
     } else if (action.tool === 'move_unit') {
       const fromX = typeof action.args.fromX === 'number' ? action.args.fromX : -1;
       const fromY = typeof action.args.fromY === 'number' ? action.args.fromY : -1;
@@ -240,7 +286,7 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
         targetRow[toX] = { ...unit } as Cell;
       }
       result = { status: 'moved', fromX, fromY, toX, toY };
-      nextState.turn++;
+      nextState.turn += 1;
     }
 
     return { state: nextState, result };
@@ -252,7 +298,6 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
     }
 
     if (state.turn > state.maxTurns) {
-      // Evaluate board using LLMJudge
       const evalResult = await this.judge.evaluateBoard(state);
 
       const termination: TerminationResult = {
@@ -267,7 +312,6 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
         termination.reason = evalResult.reason;
       }
 
-      // Mutate state so the engine persists the termination result and avoids repeated LLM calls
       state.gameOver = true;
       state.terminationResult = termination;
 
@@ -277,13 +321,14 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
     return null;
   }
 
-  private inBounds(x: number, y: number): boolean {
-    return x >= 0 && x < 10 && y >= 0 && y < 10;
+  private inBounds(x: number, y: number, size: number): boolean {
+    return x >= 0 && x < size && y >= 0 && y < size;
   }
 
   private cloneState(state: VectorGridWarsState): VectorGridWarsState {
     return {
       ...state,
+      toolDefinitions: [...state.toolDefinitions],
       grid: state.grid.map((row) => row.map((cell) => ({ ...cell }))),
     };
   }

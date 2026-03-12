@@ -87,6 +87,7 @@ export interface MatchDocument {
   participants: MatchParticipantDocument[];
   startedAt?: string;
   endedAt?: string;
+  ruleId: string;
   ruleVersion: string;
   region: string;
 }
@@ -174,6 +175,7 @@ export const isMatchDocument = (value: unknown): value is MatchDocument => {
     value.participants.every((participant) => isMatchParticipantDocument(participant)) &&
     isOptionalNonEmptyString(value.startedAt) &&
     isOptionalNonEmptyString(value.endedAt) &&
+    isNonEmptyString(value.ruleId) &&
     isNonEmptyString(value.ruleVersion) &&
     isNonEmptyString(value.region)
   );
@@ -295,6 +297,7 @@ export const matchFirestoreConverter = createValidatedFirestoreConverter<Match, 
       gameId: model.gameId,
       status: model.status,
       participants: serializeMatchParticipants(model.participants),
+      ruleId: model.ruleId,
       ruleVersion: model.ruleVersion,
       region: model.region,
     };
@@ -315,6 +318,7 @@ export const matchFirestoreConverter = createValidatedFirestoreConverter<Match, 
       gameId: stored.gameId,
       status: stored.status,
       participants: parseMatchParticipants(stored.participants),
+      ruleId: stored.ruleId,
       ruleVersion: stored.ruleVersion,
       region: stored.region,
     };

@@ -10,7 +10,11 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [{ "path": "../../packages/domain" }, { "path": "../../packages/mcp-protocol" }],
+  "references": [
+    { "path": "../../packages/domain" },
+    { "path": "../../packages/mcp-protocol" },
+    { "path": "../../packages/rules" }
+  ],
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "test"]
 }

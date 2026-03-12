@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Action, GamePlugin, TerminationResult } from './types.js';
 import type { RedisManager } from '../state/redis-manager.js';
+import type { RuleRegistry } from '../rules/registry.js';
 import {
   isCommonErrorCode,
   isJsonValue,
@@ -103,7 +104,10 @@ const isProcessActionResponse = (value: unknown): value is ProcessActionResponse
 export class Engine {
   private plugins = new Map<string, GamePlugin>();
 
-  constructor(private redis: RedisManager) {}
+  constructor(
+    private redis: RedisManager,
+    private ruleRegistry?: RuleRegistry,
+  ) {}
 
   registerPlugin(plugin: GamePlugin) {
     this.plugins.set(plugin.gameId, plugin);
@@ -115,16 +119,22 @@ export class Engine {
       throw new Error(`Game plugin not found: ${gameId}`);
     }
 
-    const state = plugin.initialize(seed);
+    const activeRule = this.ruleRegistry
+      ? await this.ruleRegistry.getActiveRuleDefinition(gameId)
+      : null;
+
+    const state = plugin.initialize(seed, activeRule ?? undefined);
     const turn = plugin.getTurn(state);
-    const turnTimeoutSeconds = this.getTurnTimeoutSeconds(null, plugin);
+    const turnTimeoutSeconds =
+      activeRule?.turnTimeoutSeconds ?? this.getTurnTimeoutSeconds(null, plugin);
     const turnStartedAtMs = Date.now().toString();
 
     await this.redis.saveMatchState(matchId, state);
     await this.redis.saveMatchMeta(matchId, {
       gameId,
       seed: seed.toString(),
-      ruleVersion: plugin.ruleVersion,
+      ruleId: activeRule?.ruleId ?? gameId,
+      ruleVersion: activeRule?.ruleVersion ?? plugin.ruleVersion,
       turn: turn.toString(),
       retryCount: '0',
       turnTimeoutSec: turnTimeoutSeconds.toString(),

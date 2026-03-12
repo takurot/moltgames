@@ -1,12 +1,29 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/domain" },
-    { "path": "./packages/mcp-protocol" },
-    { "path": "./apps/gateway" },
-    { "path": "./apps/engine" },
-    { "path": "./apps/web" },
-    { "path": "./tools/cli" },
-    { "path": "./tools/agent-runner" }
+    {
+      "path": "./packages/domain"
+    },
+    {
+      "path": "./packages/mcp-protocol"
+    },
+    {
+      "path": "./packages/rules"
+    },
+    {
+      "path": "./apps/gateway"
+    },
+    {
+      "path": "./apps/engine"
+    },
+    {
+      "path": "./apps/web"
+    },
+    {
+      "path": "./tools/cli"
+    },
+    {
+      "path": "./tools/agent-runner"
+    }
   ]
 }

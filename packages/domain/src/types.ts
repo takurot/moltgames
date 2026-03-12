@@ -37,6 +37,7 @@ export interface Match {
   participants: readonly MatchParticipant[];
   startedAt?: IsoDateString;
   endedAt?: IsoDateString;
+  ruleId: string;
   ruleVersion: string;
   region: string;
 }

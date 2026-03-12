@@ -9,6 +9,7 @@ import {
   createValidatedFirestoreConverter,
   getAllowedNextMatchStatuses,
   isTerminalMatchStatus,
+  matchFirestoreConverter,
   ratingFirestoreConverter,
 } from '../../src/index.js';
 
@@ -170,5 +171,60 @@ describe('domain package', () => {
         }),
       }),
     ).toThrowError('Invalid Firestore payload for document rating-1');
+  });
+
+  it('round-trips match payloads including ruleId', () => {
+    const stored = matchFirestoreConverter.toFirestore({
+      matchId: 'match-1',
+      gameId: 'prompt-injection-arena',
+      status: 'READY',
+      participants: [
+        {
+          uid: 'user-1',
+          agentId: 'agent-1',
+          role: 'PLAYER',
+        },
+      ],
+      ruleId: 'standard',
+      ruleVersion: '1.1.0',
+      region: 'us-central1',
+    });
+
+    expect(stored).toEqual({
+      matchId: 'match-1',
+      gameId: 'prompt-injection-arena',
+      status: 'READY',
+      participants: [
+        {
+          uid: 'user-1',
+          agentId: 'agent-1',
+          role: 'PLAYER',
+        },
+      ],
+      ruleId: 'standard',
+      ruleVersion: '1.1.0',
+      region: 'us-central1',
+    });
+
+    expect(
+      matchFirestoreConverter.fromFirestore({
+        id: 'match-1',
+        data: () => stored,
+      }),
+    ).toEqual({
+      matchId: 'match-1',
+      gameId: 'prompt-injection-arena',
+      status: 'READY',
+      participants: [
+        {
+          uid: 'user-1',
+          agentId: 'agent-1',
+          role: 'PLAYER',
+        },
+      ],
+      ruleId: 'standard',
+      ruleVersion: '1.1.0',
+      region: 'us-central1',
+    });
   });
 });
