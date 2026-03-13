@@ -8,6 +8,8 @@ end
 return 0
 `;
 const LIVE_STATE_TTL_SECONDS = 600;
+const ACTIVE_RULE_KEY_PREFIX = 'rules:active:';
+const RULE_AUDIT_KEY_PREFIX = 'rules:audit:';
 
 export class RedisManager {
   private client: Redis;
@@ -77,6 +79,28 @@ export class RedisManager {
     const data = await this.client.get(`match:${matchId}:request:${requestId}`);
     if (!data) return null;
     return JSON.parse(data) as JsonValue;
+  }
+
+  async getActiveRuleSnapshot<T>(gameId: string): Promise<T | null> {
+    const data = await this.client.get(`${ACTIVE_RULE_KEY_PREFIX}${gameId}`);
+    if (!data) {
+      return null;
+    }
+
+    return JSON.parse(data) as T;
+  }
+
+  async setActiveRuleSnapshot(gameId: string, snapshot: unknown): Promise<void> {
+    await this.client.set(`${ACTIVE_RULE_KEY_PREFIX}${gameId}`, JSON.stringify(snapshot));
+  }
+
+  async appendRuleAuditEntry(gameId: string, entry: unknown): Promise<void> {
+    await this.client.rpush(`${RULE_AUDIT_KEY_PREFIX}${gameId}`, JSON.stringify(entry));
+  }
+
+  async listRuleAuditEntries<T>(gameId: string): Promise<T[]> {
+    const entries = await this.client.lrange(`${RULE_AUDIT_KEY_PREFIX}${gameId}`, 0, -1);
+    return entries.map((entry) => JSON.parse(entry) as T);
   }
 
   async close(): Promise<void> {

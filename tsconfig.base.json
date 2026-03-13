@@ -16,7 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "@moltgames/domain": ["packages/domain/src/index.ts"],
-      "@moltgames/mcp-protocol": ["packages/mcp-protocol/src/index.ts"]
+      "@moltgames/mcp-protocol": ["packages/mcp-protocol/src/index.ts"],
+      "@moltgames/rules": ["packages/rules/src/index.ts"]
     },
     "types": ["node", "vitest/globals"],
     "rootDir": "src",
