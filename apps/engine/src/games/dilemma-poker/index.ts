@@ -44,11 +44,13 @@ const DEFAULT_RULE: LoadedGameRule = {
   ],
   parameters: {
     initialChips: 0,
-    negotiationMessageLimit: 2,
+    maxRounds: 5,
+    negotiationPhaseMessagesPerRound: 2,
   },
   termination: {
     type: 'dilemma-poker',
     maxRounds: 5,
+    reason: 'Max rounds reached',
     cooperateCooperate: 3,
     defectDefect: 1,
     cooperateDefect: 0,
@@ -66,6 +68,15 @@ const getNumberParameter = (
 ): number => {
   const value = source[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+};
+
+const getStringParameter = (
+  source: Record<string, unknown>,
+  key: string,
+  fallback: string,
+): string => {
+  const value = source[key];
+  return typeof value === 'string' && value.length > 0 ? value : fallback;
 };
 
 const pickTools = (
@@ -93,6 +104,8 @@ export interface DilemmaPokerState {
   turn: number;
   round: number;
   maxRounds: number;
+  negotiationPhaseMessagesPerRound: number;
+  terminationReason: string;
   phase: 'negotiation' | 'action';
   agent1Id: string;
   agent2Id: string;
@@ -119,6 +132,11 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
     const agent1Id = 'agent-1';
     const agent2Id = 'agent-2';
     const initialChips = getNumberParameter(parameters, 'initialChips', 0);
+    const negotiationPhaseMessagesPerRound = Math.max(
+      1,
+      getNumberParameter(parameters, 'negotiationPhaseMessagesPerRound', 2),
+    );
+    const turnsPerRound = negotiationPhaseMessagesPerRound + 2;
 
     return {
       ruleId: rule.ruleId,
@@ -130,8 +148,14 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
       maxRounds: getNumberParameter(
         parameters,
         'maxRounds',
-        getNumberParameter(termination, 'maxRounds', Math.max(1, Math.floor(rule.turnLimit / 4))),
+        getNumberParameter(
+          termination,
+          'maxRounds',
+          Math.max(1, Math.floor(rule.turnLimit / turnsPerRound)),
+        ),
       ),
+      negotiationPhaseMessagesPerRound,
+      terminationReason: getStringParameter(termination, 'reason', 'Max rounds reached'),
       phase: 'negotiation',
       agent1Id,
       agent2Id,
@@ -165,7 +189,11 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
     };
   }
 
-  getAvailableTools(state: DilemmaPokerState, agentId: string, _phase: string): MCPToolDefinition[] {
+  getAvailableTools(
+    state: DilemmaPokerState,
+    agentId: string,
+    _phase: string,
+  ): MCPToolDefinition[] {
     if (!this.isAgentTurn(state, agentId)) {
       return [];
     }
@@ -261,7 +289,7 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
       });
       nextState.turn += 1;
 
-      if (nextState.negotiationsThisRound.length >= 2) {
+      if (nextState.negotiationsThisRound.length >= nextState.negotiationPhaseMessagesPerRound) {
         nextState.phase = 'action';
       }
 
@@ -297,7 +325,7 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
 
       const term: TerminationResult = {
         ended: true,
-        reason: 'Max rounds reached',
+        reason: state.terminationReason,
       };
       if (winner) {
         term.winner = winner;
@@ -331,7 +359,8 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
   }
 
   private getCurrentTurnAgentId(state: DilemmaPokerState): string {
-    const turnInRound = (state.turn - 1) % 4;
+    const turnsPerRound = state.negotiationPhaseMessagesPerRound + 2;
+    const turnInRound = (state.turn - 1) % turnsPerRound;
     const agent1GoesFirst = state.round % 2 === 1;
 
     const firstAgent = agent1GoesFirst ? state.agent1Id : state.agent2Id;

@@ -96,9 +96,7 @@ export class RuleRegistry {
   async getActiveRuleDefinition(gameId: string): Promise<LoadedGameRule | null> {
     const snapshot = await this.getActiveRuleSnapshot(gameId);
     if (snapshot !== null) {
-      return (
-        this.catalog.getRule(snapshot.gameId, snapshot.ruleId, snapshot.ruleVersion) ?? null
-      );
+      return this.catalog.getRule(snapshot.gameId, snapshot.ruleId, snapshot.ruleVersion) ?? null;
     }
 
     return this.catalog.getLatestRule(gameId) ?? null;
@@ -148,9 +146,10 @@ export class RuleRegistry {
     }
 
     const currentSnapshot = toSnapshot(currentRule);
-    const targetRule = input.targetRuleId && input.targetRuleVersion
-      ? this.catalog.getRule(input.gameId, input.targetRuleId, input.targetRuleVersion)
-      : await this.resolvePreviousRule(input.gameId, currentSnapshot);
+    const targetRule =
+      input.targetRuleId && input.targetRuleVersion
+        ? this.catalog.getRule(input.gameId, input.targetRuleId, input.targetRuleVersion)
+        : await this.resolvePreviousRule(input.gameId, currentSnapshot);
 
     if (!targetRule) {
       throw new Error(`Rollback target not found for game: ${input.gameId}`);
@@ -196,7 +195,11 @@ export class RuleRegistry {
         continue;
       }
 
-      const resolved = this.catalog.getRule(candidate.gameId, candidate.ruleId, candidate.ruleVersion);
+      const resolved = this.catalog.getRule(
+        candidate.gameId,
+        candidate.ruleId,
+        candidate.ruleVersion,
+      );
       if (resolved) {
         return resolved;
       }

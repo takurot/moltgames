@@ -15,25 +15,13 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@moltgames/domain": [
-        "packages/domain/src/index.ts"
-      ],
-      "@moltgames/mcp-protocol": [
-        "packages/mcp-protocol/src/index.ts"
-      ],
-      "@moltgames/rules": [
-        "packages/rules/src/index.ts"
-      ]
+      "@moltgames/domain": ["packages/domain/src/index.ts"],
+      "@moltgames/mcp-protocol": ["packages/mcp-protocol/src/index.ts"],
+      "@moltgames/rules": ["packages/rules/src/index.ts"]
     },
-    "types": [
-      "node",
-      "vitest/globals"
-    ],
+    "types": ["node", "vitest/globals"],
     "rootDir": "src",
     "outDir": "dist"
   },
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "exclude": ["node_modules", "dist"]
 }

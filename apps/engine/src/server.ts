@@ -145,9 +145,7 @@ export const createServer = async (options: CreateServerOptions = {}) => {
         } as const;
 
         const entry = await ruleRegistry.publishRule(
-          request.body.reason === undefined
-            ? input
-            : { ...input, reason: request.body.reason },
+          request.body.reason === undefined ? input : { ...input, reason: request.body.reason },
         );
         return { status: 'ok', entry };
       } catch (error: unknown) {

@@ -4,10 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  assertRuleVersionCompatibility,
-  loadRuleCatalog,
-} from '../../src/index.js';
+import { assertRuleVersionCompatibility, loadRuleCatalog } from '../../src/index.js';
 
 const writeRuleFile = async (
   dir: string,
@@ -157,9 +154,7 @@ describe('rule catalog', () => {
       ],
     };
 
-    expect(() => assertRuleVersionCompatibility(previous, breakingMinor)).toThrow(
-      /major version/i,
-    );
+    expect(() => assertRuleVersionCompatibility(previous, breakingMinor)).toThrow(/major version/i);
 
     const breakingMajor = {
       ...breakingMinor,

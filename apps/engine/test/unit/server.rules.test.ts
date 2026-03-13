@@ -93,97 +93,93 @@ describe('engine server rule management', () => {
     await rm(workingDir, { recursive: true, force: true });
   });
 
-  it(
-    'applies a published rule only to new matches and keeps older matches pinned',
-    async () => {
-      const server = await createServer({ rulesDir: workingDir });
+  it('applies a published rule only to new matches and keeps older matches pinned', async () => {
+    const server = await createServer({ rulesDir: workingDir });
 
-      try {
-        const publishV1 = await server.fastify.inject({
-          method: 'PUT',
-          url: '/rules/prompt-injection-arena/active',
-          payload: {
-            ruleId: 'standard',
-            ruleVersion: '1.0.0',
-            actor: 'tester',
-            reason: 'seed baseline',
-          },
-        });
-        expect(publishV1.statusCode).toBe(200);
+    try {
+      const publishV1 = await server.fastify.inject({
+        method: 'PUT',
+        url: '/rules/prompt-injection-arena/active',
+        payload: {
+          ruleId: 'standard',
+          ruleVersion: '1.0.0',
+          actor: 'tester',
+          reason: 'seed baseline',
+        },
+      });
+      expect(publishV1.statusCode).toBe(200);
 
-        const firstStart = await server.fastify.inject({
-          method: 'POST',
-          url: '/matches/match-old/start',
-          payload: { gameId: 'prompt-injection-arena', seed: 11 },
-        });
-        expect(firstStart.statusCode).toBe(200);
+      const firstStart = await server.fastify.inject({
+        method: 'POST',
+        url: '/matches/match-old/start',
+        payload: { gameId: 'prompt-injection-arena', seed: 11 },
+      });
+      expect(firstStart.statusCode).toBe(200);
 
-        const publishV2 = await server.fastify.inject({
-          method: 'PUT',
-          url: '/rules/prompt-injection-arena/active',
-          payload: {
-            ruleId: 'standard',
-            ruleVersion: '2.0.0',
-            actor: 'tester',
-            reason: 'promote next version',
-          },
-        });
-        expect(publishV2.statusCode).toBe(200);
+      const publishV2 = await server.fastify.inject({
+        method: 'PUT',
+        url: '/rules/prompt-injection-arena/active',
+        payload: {
+          ruleId: 'standard',
+          ruleVersion: '2.0.0',
+          actor: 'tester',
+          reason: 'promote next version',
+        },
+      });
+      expect(publishV2.statusCode).toBe(200);
 
-        const secondStart = await server.fastify.inject({
-          method: 'POST',
-          url: '/matches/match-new/start',
-          payload: { gameId: 'prompt-injection-arena', seed: 22 },
-        });
-        expect(secondStart.statusCode).toBe(200);
+      const secondStart = await server.fastify.inject({
+        method: 'POST',
+        url: '/matches/match-new/start',
+        payload: { gameId: 'prompt-injection-arena', seed: 22 },
+      });
+      expect(secondStart.statusCode).toBe(200);
 
-        const oldMeta = await server.redisManager.getMatchMeta('match-old');
-        const newMeta = await server.redisManager.getMatchMeta('match-new');
-        const oldState =
-          await server.redisManager.getMatchState<PromptInjectionArenaState>('match-old');
-        const newState =
-          await server.redisManager.getMatchState<PromptInjectionArenaState>('match-new');
+      const oldMeta = await server.redisManager.getMatchMeta('match-old');
+      const newMeta = await server.redisManager.getMatchMeta('match-new');
+      const oldState =
+        await server.redisManager.getMatchState<PromptInjectionArenaState>('match-old');
+      const newState =
+        await server.redisManager.getMatchState<PromptInjectionArenaState>('match-new');
 
-        expect(oldMeta).toEqual(
+      expect(oldMeta).toEqual(
+        expect.objectContaining({
+          gameId: 'prompt-injection-arena',
+          ruleId: 'standard',
+          ruleVersion: '1.0.0',
+        }),
+      );
+      expect(newMeta).toEqual(
+        expect.objectContaining({
+          gameId: 'prompt-injection-arena',
+          ruleId: 'standard',
+          ruleVersion: '2.0.0',
+        }),
+      );
+      expect(oldState?.maxTurns).toBe(6);
+      expect(newState?.maxTurns).toBe(12);
+
+      const auditResponse = await server.fastify.inject({
+        method: 'GET',
+        url: '/rules/prompt-injection-arena/audit',
+      });
+
+      expect(auditResponse.statusCode).toBe(200);
+      expect(auditResponse.json()).toEqual({
+        status: 'ok',
+        entries: expect.arrayContaining([
           expect.objectContaining({
-            gameId: 'prompt-injection-arena',
-            ruleId: 'standard',
-            ruleVersion: '1.0.0',
+            action: 'publish',
+            to: expect.objectContaining({ ruleVersion: '1.0.0' }),
           }),
-        );
-        expect(newMeta).toEqual(
           expect.objectContaining({
-            gameId: 'prompt-injection-arena',
-            ruleId: 'standard',
-            ruleVersion: '2.0.0',
+            action: 'publish',
+            to: expect.objectContaining({ ruleVersion: '2.0.0' }),
           }),
-        );
-        expect(oldState?.maxTurns).toBe(6);
-        expect(newState?.maxTurns).toBe(12);
-
-        const auditResponse = await server.fastify.inject({
-          method: 'GET',
-          url: '/rules/prompt-injection-arena/audit',
-        });
-
-        expect(auditResponse.statusCode).toBe(200);
-        expect(auditResponse.json()).toEqual({
-          status: 'ok',
-          entries: expect.arrayContaining([
-            expect.objectContaining({
-              action: 'publish',
-              to: expect.objectContaining({ ruleVersion: '1.0.0' }),
-            }),
-            expect.objectContaining({
-              action: 'publish',
-              to: expect.objectContaining({ ruleVersion: '2.0.0' }),
-            }),
-          ]),
-        });
-      } finally {
-        await server.close();
-      }
-    },
-    10000,
-  );
+        ]),
+      });
+    } finally {
+      await server.close();
+    }
+  }, 10000);
 });

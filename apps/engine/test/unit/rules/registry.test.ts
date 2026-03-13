@@ -84,9 +84,9 @@ describe('RuleRegistry', () => {
       reason: 'pin stable baseline',
     });
 
-    expect(
-      (await registry.getActiveRuleDefinition('prompt-injection-arena'))?.ruleVersion,
-    ).toBe('1.0.0');
+    expect((await registry.getActiveRuleDefinition('prompt-injection-arena'))?.ruleVersion).toBe(
+      '1.0.0',
+    );
 
     await registry.publishRule({
       gameId: 'prompt-injection-arena',
@@ -96,9 +96,9 @@ describe('RuleRegistry', () => {
       reason: 'promote updated rule pack',
     });
 
-    expect(
-      (await registry.getActiveRuleDefinition('prompt-injection-arena'))?.ruleVersion,
-    ).toBe('2.0.0');
+    expect((await registry.getActiveRuleDefinition('prompt-injection-arena'))?.ruleVersion).toBe(
+      '2.0.0',
+    );
 
     const auditBeforeRollback = await registry.listAuditEntries('prompt-injection-arena');
     expect(auditBeforeRollback).toHaveLength(2);
@@ -111,9 +111,9 @@ describe('RuleRegistry', () => {
       reason: 'restore stable baseline',
     });
 
-    expect(
-      (await registry.getActiveRuleDefinition('prompt-injection-arena'))?.ruleVersion,
-    ).toBe('1.0.0');
+    expect((await registry.getActiveRuleDefinition('prompt-injection-arena'))?.ruleVersion).toBe(
+      '1.0.0',
+    );
 
     const auditAfterRollback = await registry.listAuditEntries('prompt-injection-arena');
     expect(auditAfterRollback).toHaveLength(3);

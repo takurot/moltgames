@@ -263,7 +263,9 @@ export class RuleCatalog {
       return undefined;
     }
 
-    return [...definitions].sort((left, right) => compareSemver(right.ruleVersion, left.ruleVersion))[0];
+    return [...definitions].sort((left, right) =>
+      compareSemver(right.ruleVersion, left.ruleVersion),
+    )[0];
   }
 
   private toCompositeKey(gameId: string, ruleId: string, ruleVersion: string): string {

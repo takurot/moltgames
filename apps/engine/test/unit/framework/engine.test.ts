@@ -102,6 +102,20 @@ class MockGamePlugin implements GamePlugin<any> {
   }
 }
 
+class RuleAwareGamePlugin extends MockGamePlugin {
+  gameId = 'rule-aware-game';
+  ruleVersion = '0.0.1';
+
+  initialize(seed: number) {
+    return {
+      turn: 1,
+      value: seed,
+      ruleId: 'standard',
+      ruleVersion: '2.1.0',
+    };
+  }
+}
+
 describe('Engine', () => {
   let engine: Engine;
   let redisManager: RedisManager;
@@ -130,6 +144,21 @@ describe('Engine', () => {
       }),
     );
     expect(Number(meta?.turnStartedAtMs)).toBeGreaterThan(0);
+  });
+
+  it('should persist fallback rule metadata from plugin state when no registry is configured', async () => {
+    engine.registerPlugin(new RuleAwareGamePlugin());
+
+    await engine.startMatch('rule-aware-match', 'rule-aware-game', 456);
+
+    const meta = await redisManager.getMatchMeta('rule-aware-match');
+    expect(meta).toEqual(
+      expect.objectContaining({
+        gameId: 'rule-aware-game',
+        ruleId: 'standard',
+        ruleVersion: '2.1.0',
+      }),
+    );
   });
 
   it('should process a valid action', async () => {

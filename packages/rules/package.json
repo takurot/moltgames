@@ -1,31 +1,31 @@
 {
-    "name": "@moltgames/rules",
-    "version": "0.1.0",
-    "private": true,
-    "type": "module",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "default": "./src/index.ts"
-        }
-    },
-    "dependencies": {
-        "@moltgames/domain": "workspace:*",
-        "@moltgames/mcp-protocol": "workspace:*",
-        "zod": "^3.22.4"
-    },
-    "devDependencies": {
-        "vitest": "^1.0.0",
-        "typescript": "^5.0.0",
-        "eslint": "^8.0.0"
-    },
-    "scripts": {
-        "build": "tsc -p tsconfig.json",
-        "lint": "eslint \"src/**/*.ts\"",
-        "typecheck": "tsc -b --force tsconfig.json",
-        "test:unit": "vitest run --passWithNoTests test/unit",
-        "test:integration": "vitest run --passWithNoTests test/integration"
+  "name": "@moltgames/rules",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
     }
+  },
+  "dependencies": {
+    "@moltgames/domain": "workspace:*",
+    "@moltgames/mcp-protocol": "workspace:*",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0",
+    "typescript": "^5.0.0",
+    "eslint": "^8.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc -b --force tsconfig.json",
+    "test:unit": "vitest run --passWithNoTests test/unit",
+    "test:integration": "vitest run --passWithNoTests test/integration"
+  }
 }

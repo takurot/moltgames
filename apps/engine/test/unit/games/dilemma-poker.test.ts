@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import type { LoadedGameRule } from '@moltgames/rules';
+
 import { DilemmaPoker } from '../../../src/games/dilemma-poker/index.js';
 
 describe('DilemmaPoker', () => {
@@ -15,8 +17,107 @@ describe('DilemmaPoker', () => {
     expect(state.phase).toBe('negotiation');
     expect(state.turn).toBe(1);
     expect(state.round).toBe(1);
+    expect(state.negotiationPhaseMessagesPerRound).toBe(2);
     expect(state.players[agent1].chips).toBe(0);
     expect(state.players[agent2].chips).toBe(0);
+  });
+
+  it('should honor a custom negotiation phase length from the loaded rule', () => {
+    const customRule: LoadedGameRule = {
+      gameId: 'dilemma-poker',
+      ruleId: 'long-negotiation',
+      ruleVersion: '2.0.0',
+      turnLimit: 18,
+      turnTimeoutSeconds: 30,
+      tools: [
+        {
+          name: 'get_status',
+          description: 'Gets your current status, including chip count and current round.',
+          version: '1.0.0',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+        {
+          name: 'negotiate',
+          description: 'Send a message to the opponent during the negotiation phase.',
+          version: '1.0.0',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              message: { type: 'string', minLength: 1, maxLength: 500 },
+            },
+            required: ['message'],
+            additionalProperties: false,
+          },
+        },
+        {
+          name: 'commit_action',
+          description: 'The final action to take for this round: cooperate or defect.',
+          version: '1.0.0',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              action: {
+                type: 'string',
+                enum: ['cooperate', 'defect'],
+              },
+            },
+            required: ['action'],
+            additionalProperties: false,
+          },
+        },
+      ],
+      parameters: {
+        initialChips: 0,
+        maxRounds: 3,
+        negotiationPhaseMessagesPerRound: 4,
+      },
+      termination: {
+        type: 'dilemma-poker',
+        reason: 'Max rounds reached',
+        cooperateCooperate: 3,
+        defectDefect: 1,
+        cooperateDefect: 0,
+        defectCooperate: 5,
+      },
+      redactionPolicy: {
+        type: 'hide-pending-actions',
+      },
+    };
+
+    let state = plugin.initialize(123, customRule);
+    expect(state.negotiationPhaseMessagesPerRound).toBe(4);
+
+    for (const [requestId, message] of [
+      ['1', 'hello'],
+      ['2', 'hi'],
+      ['3', 'deal?'],
+    ] as const) {
+      state = plugin.applyAction(state, {
+        tool: 'negotiate',
+        request_id: requestId,
+        args: { message },
+      }).state;
+      expect(state.phase).toBe('negotiation');
+    }
+
+    expect(
+      plugin
+        .getAvailableTools(state, agent2, 'negotiation')
+        .some((tool) => tool.name === 'negotiate'),
+    ).toBe(true);
+
+    state = plugin.applyAction(state, {
+      tool: 'negotiate',
+      request_id: '4',
+      args: { message: 'let us see' },
+    }).state;
+
+    expect(state.phase).toBe('action');
+    expect(state.turn).toBe(5);
   });
 
   it('should manage turn order: agent1 -> agent2 -> agent1 -> agent2 correctly in round 1', () => {

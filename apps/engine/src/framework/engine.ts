@@ -128,13 +128,19 @@ export class Engine {
     const turnTimeoutSeconds =
       activeRule?.turnTimeoutSeconds ?? this.getTurnTimeoutSeconds(null, plugin);
     const turnStartedAtMs = Date.now().toString();
+    const fallbackRuleId =
+      isRecord(state) && isNonEmptyString(state.ruleId) ? state.ruleId : gameId;
+    const fallbackRuleVersion =
+      isRecord(state) && isNonEmptyString(state.ruleVersion)
+        ? state.ruleVersion
+        : plugin.ruleVersion;
 
     await this.redis.saveMatchState(matchId, state);
     await this.redis.saveMatchMeta(matchId, {
       gameId,
       seed: seed.toString(),
-      ruleId: activeRule?.ruleId ?? gameId,
-      ruleVersion: activeRule?.ruleVersion ?? plugin.ruleVersion,
+      ruleId: activeRule?.ruleId ?? fallbackRuleId,
+      ruleVersion: activeRule?.ruleVersion ?? fallbackRuleVersion,
       turn: turn.toString(),
       retryCount: '0',
       turnTimeoutSec: turnTimeoutSeconds.toString(),

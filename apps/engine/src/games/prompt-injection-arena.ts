@@ -92,8 +92,10 @@ const getStringParameter = (
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 };
 
-const pickTools = (tools: readonly MCPToolDefinition[], names: readonly string[]): MCPToolDefinition[] =>
-  tools.filter((tool) => names.includes(tool.name));
+const pickTools = (
+  tools: readonly MCPToolDefinition[],
+  names: readonly string[],
+): MCPToolDefinition[] => tools.filter((tool) => names.includes(tool.name));
 
 export interface PromptInjectionArenaState {
   ruleId: string;
