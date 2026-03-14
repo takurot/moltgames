@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint \"src/**/*.ts\"",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "pnpm --filter @moltgames/domain build && pnpm --filter @moltgames/mcp-protocol build && tsc -p tsconfig.json --noEmit",
     "test:unit": "vitest run --passWithNoTests test/unit",
     "test:integration": "vitest run --passWithNoTests test/integration",
     "test:e2e": "vitest run --passWithNoTests test/e2e"

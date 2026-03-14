@@ -29,6 +29,12 @@ import { loggerOptions } from './logger.js';
 import { RedisConnectTokenSessionStore } from './auth/redis-store.js';
 import { FirebaseAuthVerifier } from './auth/firebase-verifier.js';
 import { EngineClient } from './engine/client.js';
+import {
+  FirestoreRatingRepository,
+  InMemoryRatingRepository,
+  type RatingRepository,
+} from './rating/repository.js';
+import { RatingService, type MatchResultJob } from './rating/service.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -45,6 +51,7 @@ export interface AppOptions {
   verifier?: FirebaseIdTokenVerifier;
   engineClient?: GatewayEngineClient;
   reconnectGraceMs?: number;
+  ratingRepository?: RatingRepository;
 }
 
 export interface GatewayEngineClient {
@@ -69,6 +76,10 @@ interface AgentSession {
   socket: WebSocket | null;
   forfeitTimer: NodeJS.Timeout | null;
   reconnectDeadlineAtMs: number | null;
+}
+
+interface RatingJobQueue {
+  enqueue(job: MatchResultJob): Promise<void>;
 }
 
 const SUPPORTED_WS_PROTOCOL = 'moltgame.v1';
@@ -326,6 +337,18 @@ export const createApp = async (options: AppOptions = {}) => {
     }
   }
 
+  const ratingRepository =
+    options.ratingRepository ??
+    (process.env.NODE_ENV === 'test' || getApps().length === 0
+      ? new InMemoryRatingRepository()
+      : new FirestoreRatingRepository());
+  const ratingService = new RatingService({ repository: ratingRepository });
+  const ratingJobQueue: RatingJobQueue = {
+    enqueue: async (job) => {
+      await ratingService.processMatchResult(job);
+    },
+  };
+
   const store =
     process.env.NODE_ENV === 'test' && !options.redis
       ? new InMemoryConnectTokenSessionStore()
@@ -469,6 +492,22 @@ export const createApp = async (options: AppOptions = {}) => {
           normalizedResponse.termination.ended
         ) {
           const termination = normalizedResponse.termination;
+          const playerSessions = matchSessions.filter((s) => s.uid.length > 0);
+          const participants = Array.from(new Set(playerSessions.map((s) => s.uid)));
+          const winnerUid =
+            termination.winner === undefined
+              ? null
+              : (playerSessions.find((s) => s.agentId === termination.winner)?.uid ?? null);
+
+          if (participants.length === 2) {
+            await ratingJobQueue.enqueue({
+              matchId: session.matchId,
+              participants,
+              winnerUid,
+              endedAt: new Date().toISOString(),
+            });
+          }
+
           for (const s of matchSessions) {
             sendJson(
               s.socket,
@@ -562,6 +601,49 @@ export const createApp = async (options: AppOptions = {}) => {
 
   app.post('/v1/tokens', handleConnectTokenRequest);
   app.delete('/v1/tokens/:tokenId', handleConnectTokenRequest);
+
+  app.post<{
+    Body: { matchId: string; participants: string[]; winnerUid?: string | null; endedAt: string };
+  }>('/internal/tasks/ratings/match-finished', async (request, reply) => {
+    try {
+      const result = await ratingService.processMatchResult(request.body);
+      return {
+        status: 'ok',
+        seasonId: result.season.seasonId,
+        leaderboardSize: result.leaderboard.entries.length,
+      };
+    } catch (error: unknown) {
+      request.log.error({ error }, 'Failed to process rating task');
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      reply.status(400).send({ status: 'error', message });
+    }
+  });
+
+  app.get<{ Params: { seasonId: string; uid: string } }>(
+    '/v1/ratings/:seasonId/:uid',
+    async (request, reply) => {
+      const rating = await ratingService.getRating(request.params.seasonId, request.params.uid);
+      if (rating === null) {
+        reply.status(404).send({ status: 'error', message: 'Rating not found' });
+        return;
+      }
+
+      return { status: 'ok', rating };
+    },
+  );
+
+  app.get<{ Params: { seasonId: string } }>(
+    '/v1/leaderboards/:seasonId',
+    async (request, reply) => {
+      const leaderboard = await ratingService.getLeaderboard(request.params.seasonId);
+      if (leaderboard === null) {
+        reply.status(404).send({ status: 'error', message: 'Leaderboard not found' });
+        return;
+      }
+
+      return { status: 'ok', leaderboard };
+    },
+  );
 
   app.get(
     '/v1/ws',
