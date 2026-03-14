@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COMMON_ERROR_CODES,
   DOMAIN_PACKAGE_NAME,
+  leaderboardFirestoreConverter,
   MATCH_STATUSES,
   MATCH_TERMINAL_STATUSES,
   canTransitionMatchStatus,
@@ -11,6 +12,7 @@ import {
   isTerminalMatchStatus,
   matchFirestoreConverter,
   ratingFirestoreConverter,
+  seasonFirestoreConverter,
 } from '../../src/index.js';
 
 describe('domain package', () => {
@@ -171,6 +173,74 @@ describe('domain package', () => {
         }),
       }),
     ).toThrowError('Invalid Firestore payload for document rating-1');
+  });
+
+  it('round-trips leaderboard and season payloads', () => {
+    const leaderboard = leaderboardFirestoreConverter.toFirestore({
+      seasonId: '2026-q1',
+      generatedAt: '2026-03-14T00:00:00.000Z',
+      entries: [
+        {
+          uid: 'user-1',
+          rank: 1,
+          elo: 1516,
+          matches: 1,
+          winRate: 1,
+        },
+        {
+          uid: 'user-2',
+          rank: 2,
+          elo: 1484,
+          matches: 1,
+          winRate: 0,
+        },
+      ],
+    });
+
+    expect(
+      leaderboardFirestoreConverter.fromFirestore({
+        id: '2026-q1',
+        data: () => leaderboard,
+      }),
+    ).toEqual({
+      seasonId: '2026-q1',
+      generatedAt: '2026-03-14T00:00:00.000Z',
+      entries: [
+        {
+          uid: 'user-1',
+          rank: 1,
+          elo: 1516,
+          matches: 1,
+          winRate: 1,
+        },
+        {
+          uid: 'user-2',
+          rank: 2,
+          elo: 1484,
+          matches: 1,
+          winRate: 0,
+        },
+      ],
+    });
+
+    const season = seasonFirestoreConverter.toFirestore({
+      seasonId: '2026-q1',
+      startsAt: '2026-01-01T00:00:00.000Z',
+      endsAt: '2026-03-31T23:59:59.999Z',
+      status: 'ACTIVE',
+    });
+
+    expect(
+      seasonFirestoreConverter.fromFirestore({
+        id: '2026-q1',
+        data: () => season,
+      }),
+    ).toEqual({
+      seasonId: '2026-q1',
+      startsAt: '2026-01-01T00:00:00.000Z',
+      endsAt: '2026-03-31T23:59:59.999Z',
+      status: 'ACTIVE',
+    });
   });
 
   it('round-trips match payloads including ruleId', () => {
