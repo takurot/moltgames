@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -52,6 +52,7 @@ export interface AppOptions {
   engineClient?: GatewayEngineClient;
   reconnectGraceMs?: number;
   ratingRepository?: RatingRepository;
+  internalTaskAuthToken?: string;
 }
 
 export interface GatewayEngineClient {
@@ -160,6 +161,26 @@ const getQueryStringValue = (value: unknown): string | null => {
   }
 
   return null;
+};
+
+const getBearerToken = (authorizationHeader: string | undefined): string | null => {
+  if (authorizationHeader === undefined) {
+    return null;
+  }
+
+  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] ?? null;
+};
+
+const isSecretMatch = (actual: string, expected: string): boolean => {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+
+  if (actualBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(actualBuffer, expectedBuffer);
 };
 
 const serializeTools = (tools: MCPToolDefinition[]): string => JSON.stringify(tools);
@@ -343,6 +364,8 @@ export const createApp = async (options: AppOptions = {}) => {
       ? new InMemoryRatingRepository()
       : new FirestoreRatingRepository());
   const ratingService = new RatingService({ repository: ratingRepository });
+  const internalTaskAuthToken =
+    options.internalTaskAuthToken ?? process.env.INTERNAL_TASK_AUTH_TOKEN;
   const ratingJobQueue: RatingJobQueue = {
     enqueue: async (job) => {
       await ratingService.processMatchResult(job);
@@ -605,6 +628,23 @@ export const createApp = async (options: AppOptions = {}) => {
   app.post<{
     Body: { matchId: string; participants: string[]; winnerUid?: string | null; endedAt: string };
   }>('/internal/tasks/ratings/match-finished', async (request, reply) => {
+    const authorizationHeader =
+      typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined;
+    const bearerToken = getBearerToken(authorizationHeader);
+
+    if (internalTaskAuthToken === undefined) {
+      if (process.env.NODE_ENV !== 'test') {
+        request.log.error('INTERNAL_TASK_AUTH_TOKEN is not configured');
+        reply
+          .status(503)
+          .send({ status: 'error', message: 'Internal task authentication is not configured' });
+        return;
+      }
+    } else if (bearerToken === null || !isSecretMatch(bearerToken, internalTaskAuthToken)) {
+      reply.status(401).send({ status: 'error', message: 'Unauthorized internal task request' });
+      return;
+    }
+
     try {
       const result = await ratingService.processMatchResult(request.body);
       return {

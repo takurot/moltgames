@@ -79,6 +79,15 @@ export class RatingService {
     this.kFactor = options.kFactor ?? DEFAULT_K_FACTOR;
   }
 
+  private async archiveOtherActiveSeasons(activeSeasonId: string): Promise<void> {
+    const seasons = await this.repository.listSeasons();
+    for (const season of seasons) {
+      if (season.status === 'ACTIVE' && season.seasonId !== activeSeasonId) {
+        await this.repository.saveSeason({ ...season, status: 'ARCHIVED' });
+      }
+    }
+  }
+
   async ensureSeasonForDate(endedAt: string): Promise<Season> {
     const date = new Date(endedAt);
     if (Number.isNaN(date.getTime())) {
@@ -88,7 +97,8 @@ export class RatingService {
     const bounds = getQuarterBounds(date);
     const existing = await this.repository.getSeason(bounds.seasonId);
     if (existing !== null) {
-      if (existing.status !== 'ACTIVE') {
+      if (existing.status === 'SCHEDULED') {
+        await this.archiveOtherActiveSeasons(bounds.seasonId);
         const nextSeason: Season = { ...existing, status: 'ACTIVE' };
         await this.repository.saveSeason(nextSeason);
         return nextSeason;
@@ -97,12 +107,7 @@ export class RatingService {
       return existing;
     }
 
-    const seasons = await this.repository.listSeasons();
-    for (const season of seasons) {
-      if (season.status === 'ACTIVE' && season.seasonId !== bounds.seasonId) {
-        await this.repository.saveSeason({ ...season, status: 'ARCHIVED' });
-      }
-    }
+    await this.archiveOtherActiveSeasons(bounds.seasonId);
 
     const season: Season = {
       ...bounds,

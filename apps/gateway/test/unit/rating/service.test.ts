@@ -73,4 +73,42 @@ describe('rating service', () => {
       status: 'ACTIVE',
     });
   });
+
+  it('keeps archived seasons archived when late match results arrive', async () => {
+    const repository = new InMemoryRatingRepository();
+    const service = new RatingService({ repository });
+
+    await repository.saveSeason({
+      seasonId: '2026-q1',
+      startsAt: '2026-01-01T00:00:00.000Z',
+      endsAt: '2026-03-31T23:59:59.999Z',
+      status: 'ARCHIVED',
+    });
+    await repository.saveSeason({
+      seasonId: '2026-q2',
+      startsAt: '2026-04-01T00:00:00.000Z',
+      endsAt: '2026-06-30T23:59:59.999Z',
+      status: 'ACTIVE',
+    });
+
+    const result = await service.processMatchResult({
+      matchId: 'match-late-q1',
+      participants: ['user-1', 'user-2'],
+      winnerUid: 'user-2',
+      endedAt: '2026-03-14T10:00:00.000Z',
+    });
+
+    expect(result.season).toMatchObject({
+      seasonId: '2026-q1',
+      status: 'ARCHIVED',
+    });
+    expect(await repository.getSeason('2026-q1')).toMatchObject({
+      seasonId: '2026-q1',
+      status: 'ARCHIVED',
+    });
+    expect(await repository.getSeason('2026-q2')).toMatchObject({
+      seasonId: '2026-q2',
+      status: 'ACTIVE',
+    });
+  });
 });

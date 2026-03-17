@@ -8,11 +8,13 @@ import { InMemoryRatingRepository } from '../../src/rating/repository.js';
 
 describe('ratings api integration', () => {
   let app: FastifyInstance;
+  const internalTaskAuthToken = 'rating-task-secret';
 
   beforeEach(async () => {
     app = await createApp({
       redis: new RedisMock() as unknown as Redis,
       ratingRepository: new InMemoryRatingRepository(),
+      internalTaskAuthToken,
     });
     await app.ready();
   });
@@ -25,6 +27,9 @@ describe('ratings api integration', () => {
     const processResponse = await app.inject({
       method: 'POST',
       url: '/internal/tasks/ratings/match-finished',
+      headers: {
+        authorization: `Bearer ${internalTaskAuthToken}`,
+      },
       payload: {
         matchId: 'match-1',
         participants: ['user-1', 'user-2'],
@@ -71,6 +76,25 @@ describe('ratings api integration', () => {
           { uid: 'user-2', rank: 2, elo: 1484 },
         ],
       },
+    });
+  });
+
+  it('rejects unauthenticated rating task requests', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/internal/tasks/ratings/match-finished',
+      payload: {
+        matchId: 'match-2',
+        participants: ['user-1', 'user-2'],
+        winnerUid: 'user-1',
+        endedAt: '2026-03-14T10:00:00.000Z',
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'Unauthorized internal task request',
     });
   });
 });
