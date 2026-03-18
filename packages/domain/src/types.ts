@@ -61,6 +61,31 @@ export interface Rating {
   winRate: number;
 }
 
+export const SEASON_STATUSES = ['SCHEDULED', 'ACTIVE', 'ARCHIVED'] as const;
+
+export type SeasonStatus = (typeof SEASON_STATUSES)[number];
+
+export interface Season {
+  seasonId: string;
+  startsAt: IsoDateString;
+  endsAt: IsoDateString;
+  status: SeasonStatus;
+}
+
+export interface LeaderboardEntry {
+  uid: string;
+  rank: number;
+  elo: number;
+  matches: number;
+  winRate: number;
+}
+
+export interface Leaderboard {
+  seasonId: string;
+  generatedAt: IsoDateString;
+  entries: readonly LeaderboardEntry[];
+}
+
 export const REPLAY_VISIBILITIES = ['PUBLIC', 'PRIVATE', 'UNLISTED'] as const;
 
 export type ReplayVisibility = (typeof REPLAY_VISIBILITIES)[number];

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -29,6 +29,12 @@ import { loggerOptions } from './logger.js';
 import { RedisConnectTokenSessionStore } from './auth/redis-store.js';
 import { FirebaseAuthVerifier } from './auth/firebase-verifier.js';
 import { EngineClient } from './engine/client.js';
+import {
+  FirestoreRatingRepository,
+  InMemoryRatingRepository,
+  type RatingRepository,
+} from './rating/repository.js';
+import { RatingService, type MatchResultJob } from './rating/service.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -45,6 +51,8 @@ export interface AppOptions {
   verifier?: FirebaseIdTokenVerifier;
   engineClient?: GatewayEngineClient;
   reconnectGraceMs?: number;
+  ratingRepository?: RatingRepository;
+  internalTaskAuthToken?: string;
 }
 
 export interface GatewayEngineClient {
@@ -69,6 +77,10 @@ interface AgentSession {
   socket: WebSocket | null;
   forfeitTimer: NodeJS.Timeout | null;
   reconnectDeadlineAtMs: number | null;
+}
+
+interface RatingJobQueue {
+  enqueue(job: MatchResultJob): Promise<void>;
 }
 
 const SUPPORTED_WS_PROTOCOL = 'moltgame.v1';
@@ -149,6 +161,26 @@ const getQueryStringValue = (value: unknown): string | null => {
   }
 
   return null;
+};
+
+const getBearerToken = (authorizationHeader: string | undefined): string | null => {
+  if (authorizationHeader === undefined) {
+    return null;
+  }
+
+  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] ?? null;
+};
+
+const isSecretMatch = (actual: string, expected: string): boolean => {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+
+  if (actualBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(actualBuffer, expectedBuffer);
 };
 
 const serializeTools = (tools: MCPToolDefinition[]): string => JSON.stringify(tools);
@@ -326,6 +358,20 @@ export const createApp = async (options: AppOptions = {}) => {
     }
   }
 
+  const ratingRepository =
+    options.ratingRepository ??
+    (process.env.NODE_ENV === 'test' || getApps().length === 0
+      ? new InMemoryRatingRepository()
+      : new FirestoreRatingRepository());
+  const ratingService = new RatingService({ repository: ratingRepository });
+  const internalTaskAuthToken =
+    options.internalTaskAuthToken ?? process.env.INTERNAL_TASK_AUTH_TOKEN;
+  const ratingJobQueue: RatingJobQueue = {
+    enqueue: async (job) => {
+      await ratingService.processMatchResult(job);
+    },
+  };
+
   const store =
     process.env.NODE_ENV === 'test' && !options.redis
       ? new InMemoryConnectTokenSessionStore()
@@ -469,6 +515,22 @@ export const createApp = async (options: AppOptions = {}) => {
           normalizedResponse.termination.ended
         ) {
           const termination = normalizedResponse.termination;
+          const playerSessions = matchSessions.filter((s) => s.uid.length > 0);
+          const participants = Array.from(new Set(playerSessions.map((s) => s.uid)));
+          const winnerUid =
+            termination.winner === undefined
+              ? null
+              : (playerSessions.find((s) => s.agentId === termination.winner)?.uid ?? null);
+
+          if (participants.length === 2) {
+            await ratingJobQueue.enqueue({
+              matchId: session.matchId,
+              participants,
+              winnerUid,
+              endedAt: new Date().toISOString(),
+            });
+          }
+
           for (const s of matchSessions) {
             sendJson(
               s.socket,
@@ -562,6 +624,66 @@ export const createApp = async (options: AppOptions = {}) => {
 
   app.post('/v1/tokens', handleConnectTokenRequest);
   app.delete('/v1/tokens/:tokenId', handleConnectTokenRequest);
+
+  app.post<{
+    Body: { matchId: string; participants: string[]; winnerUid?: string | null; endedAt: string };
+  }>('/internal/tasks/ratings/match-finished', async (request, reply) => {
+    const authorizationHeader =
+      typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined;
+    const bearerToken = getBearerToken(authorizationHeader);
+
+    if (internalTaskAuthToken === undefined) {
+      if (process.env.NODE_ENV !== 'test') {
+        request.log.error('INTERNAL_TASK_AUTH_TOKEN is not configured');
+        reply
+          .status(503)
+          .send({ status: 'error', message: 'Internal task authentication is not configured' });
+        return;
+      }
+    } else if (bearerToken === null || !isSecretMatch(bearerToken, internalTaskAuthToken)) {
+      reply.status(401).send({ status: 'error', message: 'Unauthorized internal task request' });
+      return;
+    }
+
+    try {
+      const result = await ratingService.processMatchResult(request.body);
+      return {
+        status: 'ok',
+        seasonId: result.season.seasonId,
+        leaderboardSize: result.leaderboard.entries.length,
+      };
+    } catch (error: unknown) {
+      request.log.error({ error }, 'Failed to process rating task');
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      reply.status(400).send({ status: 'error', message });
+    }
+  });
+
+  app.get<{ Params: { seasonId: string; uid: string } }>(
+    '/v1/ratings/:seasonId/:uid',
+    async (request, reply) => {
+      const rating = await ratingService.getRating(request.params.seasonId, request.params.uid);
+      if (rating === null) {
+        reply.status(404).send({ status: 'error', message: 'Rating not found' });
+        return;
+      }
+
+      return { status: 'ok', rating };
+    },
+  );
+
+  app.get<{ Params: { seasonId: string } }>(
+    '/v1/leaderboards/:seasonId',
+    async (request, reply) => {
+      const leaderboard = await ratingService.getLeaderboard(request.params.seasonId);
+      if (leaderboard === null) {
+        reply.status(404).send({ status: 'error', message: 'Leaderboard not found' });
+        return;
+      }
+
+      return { status: 'ok', leaderboard };
+    },
+  );
 
   app.get(
     '/v1/ws',

@@ -4,8 +4,8 @@
     "composite": true,
     "baseUrl": ".",
     "paths": {
-      "@moltgames/domain": ["../../packages/domain/src/index"],
-      "@moltgames/mcp-protocol": ["../../packages/mcp-protocol/src/index"]
+      "@moltgames/domain": ["../../packages/domain/src/index.ts"],
+      "@moltgames/mcp-protocol": ["../../packages/mcp-protocol/src/index.ts"]
     },
     "rootDir": "src",
     "outDir": "dist"

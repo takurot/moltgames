@@ -1,15 +1,19 @@
 import type {
   AgentProfile,
+  Leaderboard,
+  LeaderboardEntry,
   Match,
   MatchParticipant,
   MatchParticipantRole,
   Rating,
   Replay,
   ReplayVisibility,
+  Season,
+  SeasonStatus,
   TurnEvent,
   User,
 } from './types.js';
-import { MATCH_PARTICIPANT_ROLES, REPLAY_VISIBILITIES } from './types.js';
+import { MATCH_PARTICIPANT_ROLES, REPLAY_VISIBILITIES, SEASON_STATUSES } from './types.js';
 import type { MatchStatus } from './match-status.js';
 import { isMatchStatus } from './match-status.js';
 import {
@@ -58,6 +62,7 @@ export const createValidatedFirestoreConverter = <TModel, TStored>(
 
 const matchParticipantRoleSet: ReadonlySet<MatchParticipantRole> = new Set(MATCH_PARTICIPANT_ROLES);
 const replayVisibilitySet: ReadonlySet<ReplayVisibility> = new Set(REPLAY_VISIBILITIES);
+const seasonStatusSet: ReadonlySet<SeasonStatus> = new Set(SEASON_STATUSES);
 
 export interface UserDocument {
   uid: string;
@@ -116,6 +121,27 @@ export interface ReplayDocument {
   storagePath: string;
   visibility: ReplayVisibility;
   redactionVersion: string;
+}
+
+export interface SeasonDocument {
+  seasonId: string;
+  startsAt: string;
+  endsAt: string;
+  status: SeasonStatus;
+}
+
+export interface LeaderboardEntryDocument {
+  uid: string;
+  rank: number;
+  elo: number;
+  matches: number;
+  winRate: number;
+}
+
+export interface LeaderboardDocument {
+  seasonId: string;
+  generatedAt: string;
+  entries: LeaderboardEntryDocument[];
 }
 
 const isOptionalNonEmptyString = (value: unknown): value is string | undefined =>
@@ -232,6 +258,55 @@ export const isReplayDocument = (value: unknown): value is ReplayDocument => {
     typeof value.visibility === 'string' &&
     replayVisibilitySet.has(value.visibility as ReplayVisibility) &&
     isNonEmptyString(value.redactionVersion)
+  );
+};
+
+export const isSeasonDocument = (value: unknown): value is SeasonDocument => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.seasonId) &&
+    isNonEmptyString(value.startsAt) &&
+    isNonEmptyString(value.endsAt) &&
+    typeof value.status === 'string' &&
+    seasonStatusSet.has(value.status as SeasonStatus)
+  );
+};
+
+const isLeaderboardEntryDocument = (value: unknown): value is LeaderboardEntryDocument => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.uid) &&
+    typeof value.rank === 'number' &&
+    Number.isInteger(value.rank) &&
+    value.rank > 0 &&
+    typeof value.elo === 'number' &&
+    Number.isFinite(value.elo) &&
+    value.elo >= 0 &&
+    typeof value.matches === 'number' &&
+    Number.isInteger(value.matches) &&
+    value.matches >= 0 &&
+    typeof value.winRate === 'number' &&
+    value.winRate >= 0 &&
+    value.winRate <= 1
+  );
+};
+
+export const isLeaderboardDocument = (value: unknown): value is LeaderboardDocument => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.seasonId) &&
+    isNonEmptyString(value.generatedAt) &&
+    Array.isArray(value.entries) &&
+    value.entries.every((entry) => isLeaderboardEntryDocument(entry))
   );
 };
 
@@ -397,11 +472,68 @@ export const replayFirestoreConverter = createValidatedFirestoreConverter<Replay
   validate: isReplayDocument,
 });
 
+const serializeLeaderboardEntries = (
+  entries: readonly LeaderboardEntry[],
+): LeaderboardEntryDocument[] =>
+  entries.map((entry) => ({
+    uid: entry.uid,
+    rank: entry.rank,
+    elo: entry.elo,
+    matches: entry.matches,
+    winRate: entry.winRate,
+  }));
+
+const parseLeaderboardEntries = (
+  entries: readonly LeaderboardEntryDocument[],
+): LeaderboardEntry[] =>
+  entries.map((entry) => ({
+    uid: entry.uid,
+    rank: entry.rank,
+    elo: entry.elo,
+    matches: entry.matches,
+    winRate: entry.winRate,
+  }));
+
+export const seasonFirestoreConverter = createValidatedFirestoreConverter<Season, SeasonDocument>({
+  serialize: (model) => ({
+    seasonId: model.seasonId,
+    startsAt: model.startsAt,
+    endsAt: model.endsAt,
+    status: model.status,
+  }),
+  parse: (stored) => ({
+    seasonId: stored.seasonId,
+    startsAt: stored.startsAt,
+    endsAt: stored.endsAt,
+    status: stored.status,
+  }),
+  validate: isSeasonDocument,
+});
+
+export const leaderboardFirestoreConverter = createValidatedFirestoreConverter<
+  Leaderboard,
+  LeaderboardDocument
+>({
+  serialize: (model) => ({
+    seasonId: model.seasonId,
+    generatedAt: model.generatedAt,
+    entries: serializeLeaderboardEntries(model.entries),
+  }),
+  parse: (stored) => ({
+    seasonId: stored.seasonId,
+    generatedAt: stored.generatedAt,
+    entries: parseLeaderboardEntries(stored.entries),
+  }),
+  validate: isLeaderboardDocument,
+});
+
 export const domainFirestoreConverters = {
   user: userFirestoreConverter,
   agentProfile: agentProfileFirestoreConverter,
   match: matchFirestoreConverter,
   turnEvent: turnEventFirestoreConverter,
   rating: ratingFirestoreConverter,
+  season: seasonFirestoreConverter,
+  leaderboard: leaderboardFirestoreConverter,
   replay: replayFirestoreConverter,
 } as const;
