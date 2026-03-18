@@ -1,6 +1,7 @@
 import type { Leaderboard, LeaderboardEntry, Rating, Season } from '@moltgames/domain';
 
 import { calculateEloRatings } from './elo.js';
+import type { LeaderboardCache } from './leaderboard-cache.js';
 import type { RatingRepository } from './repository.js';
 
 const DEFAULT_ELO = 1500;
@@ -16,6 +17,7 @@ export interface MatchResultJob {
 export interface RatingServiceOptions {
   repository: RatingRepository;
   kFactor?: number;
+  cache?: LeaderboardCache;
 }
 
 const createSeasonId = (year: number, quarter: number): string => `${year}-q${quarter}`;
@@ -73,10 +75,12 @@ const buildLeaderboard = (seasonId: string, ratings: readonly Rating[]): Leaderb
 export class RatingService {
   private repository: RatingRepository;
   private kFactor: number;
+  private cache: LeaderboardCache | undefined;
 
   constructor(options: RatingServiceOptions) {
     this.repository = options.repository;
     this.kFactor = options.kFactor ?? DEFAULT_K_FACTOR;
+    this.cache = options.cache;
   }
 
   private async archiveOtherActiveSeasons(activeSeasonId: string): Promise<void> {
@@ -172,6 +176,7 @@ export class RatingService {
     const allRatings = await this.repository.listRatingsForSeason(season.seasonId);
     const leaderboard = buildLeaderboard(season.seasonId, allRatings);
     await this.repository.saveLeaderboard(leaderboard);
+    await this.cache?.set(leaderboard);
 
     return {
       season,
@@ -184,7 +189,11 @@ export class RatingService {
     return this.repository.getRating(seasonId, uid);
   }
 
-  getLeaderboard(seasonId: string): Promise<Leaderboard | null> {
+  async getLeaderboard(seasonId: string): Promise<Leaderboard | null> {
+    const cached = await this.cache?.get(seasonId);
+    if (cached !== undefined && cached !== null) {
+      return cached;
+    }
     return this.repository.getLeaderboard(seasonId);
   }
 }

@@ -35,6 +35,11 @@ import {
   type RatingRepository,
 } from './rating/repository.js';
 import { RatingService, type MatchResultJob } from './rating/service.js';
+import { RedisLeaderboardCache, type LeaderboardCache } from './rating/leaderboard-cache.js';
+import {
+  CloudTasksRatingJobQueue,
+  getGcpAccessToken,
+} from './rating/cloud-tasks-queue.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -52,6 +57,7 @@ export interface AppOptions {
   engineClient?: GatewayEngineClient;
   reconnectGraceMs?: number;
   ratingRepository?: RatingRepository;
+  leaderboardCache?: LeaderboardCache;
   internalTaskAuthToken?: string;
 }
 
@@ -363,14 +369,45 @@ export const createApp = async (options: AppOptions = {}) => {
     (process.env.NODE_ENV === 'test' || getApps().length === 0
       ? new InMemoryRatingRepository()
       : new FirestoreRatingRepository());
-  const ratingService = new RatingService({ repository: ratingRepository });
+
+  const leaderboardCache =
+    options.leaderboardCache ??
+    (process.env.NODE_ENV !== 'test' || options.redis ? new RedisLeaderboardCache(redis) : undefined);
+
+  const ratingService = new RatingService(
+    leaderboardCache !== undefined
+      ? { repository: ratingRepository, cache: leaderboardCache }
+      : { repository: ratingRepository },
+  );
   const internalTaskAuthToken =
     options.internalTaskAuthToken ?? process.env.INTERNAL_TASK_AUTH_TOKEN;
-  const ratingJobQueue: RatingJobQueue = {
-    enqueue: async (job) => {
-      await ratingService.processMatchResult(job);
-    },
-  };
+
+  const cloudTasksQueueName = process.env.CLOUD_TASKS_QUEUE_NAME;
+  const cloudTasksProjectId = process.env.CLOUD_TASKS_PROJECT_ID;
+  const cloudTasksLocation = process.env.CLOUD_TASKS_LOCATION;
+  const cloudTasksGatewayBaseUrl = process.env.CLOUD_TASKS_GATEWAY_BASE_URL;
+
+  const ratingJobQueue: RatingJobQueue =
+    cloudTasksQueueName &&
+    cloudTasksProjectId &&
+    cloudTasksLocation &&
+    cloudTasksGatewayBaseUrl &&
+    internalTaskAuthToken
+      ? new CloudTasksRatingJobQueue(
+          {
+            projectId: cloudTasksProjectId,
+            location: cloudTasksLocation,
+            queueName: cloudTasksQueueName,
+            gatewayBaseUrl: cloudTasksGatewayBaseUrl,
+            authToken: internalTaskAuthToken,
+          },
+          getGcpAccessToken,
+        )
+      : {
+          enqueue: async (job) => {
+            await ratingService.processMatchResult(job);
+          },
+        };
 
   const store =
     process.env.NODE_ENV === 'test' && !options.redis
@@ -523,12 +560,19 @@ export const createApp = async (options: AppOptions = {}) => {
               : (playerSessions.find((s) => s.agentId === termination.winner)?.uid ?? null);
 
           if (participants.length === 2) {
-            await ratingJobQueue.enqueue({
-              matchId: session.matchId,
-              participants,
-              winnerUid,
-              endedAt: new Date().toISOString(),
-            });
+            ratingJobQueue
+              .enqueue({
+                matchId: session.matchId,
+                participants,
+                winnerUid,
+                endedAt: new Date().toISOString(),
+              })
+              .catch((enqueueError: unknown) => {
+                app.log.error(
+                  { error: enqueueError, matchId: session.matchId },
+                  'Failed to enqueue rating job',
+                );
+              });
           }
 
           for (const s of matchSessions) {

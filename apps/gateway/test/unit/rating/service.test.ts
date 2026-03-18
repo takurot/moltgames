@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import type { Leaderboard } from '@moltgames/domain';
+import { describe, expect, it, vi } from 'vitest';
 
 import { InMemoryRatingRepository } from '../../../src/rating/repository.js';
 import { RatingService } from '../../../src/rating/service.js';
+import type { LeaderboardCache } from '../../../src/rating/leaderboard-cache.js';
 
 describe('rating service', () => {
   it('creates a quarter season and updates ratings plus leaderboard', async () => {
@@ -110,5 +112,65 @@ describe('rating service', () => {
       seasonId: '2026-q2',
       status: 'ACTIVE',
     });
+  });
+});
+
+describe('rating service with leaderboard cache', () => {
+  it('populates the cache after processing a match result', async () => {
+    const repository = new InMemoryRatingRepository();
+    const cache: LeaderboardCache = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      invalidate: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new RatingService({ repository, cache });
+
+    const result = await service.processMatchResult({
+      matchId: 'match-1',
+      participants: ['user-1', 'user-2'],
+      winnerUid: 'user-1',
+      endedAt: '2026-03-14T10:00:00.000Z',
+    });
+
+    expect(cache.set).toHaveBeenCalledWith(result.leaderboard);
+  });
+
+  it('returns leaderboard from cache when available', async () => {
+    const repository = new InMemoryRatingRepository();
+    const cachedLeaderboard: Leaderboard = {
+      seasonId: '2026-q1',
+      generatedAt: '2026-03-14T09:00:00.000Z',
+      entries: [{ uid: 'user-cached', rank: 1, elo: 2000, matches: 5, winRate: 0.8 }],
+    };
+    const cache: LeaderboardCache = {
+      get: vi.fn().mockResolvedValue(cachedLeaderboard),
+      set: vi.fn().mockResolvedValue(undefined),
+      invalidate: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new RatingService({ repository, cache });
+
+    const result = await service.getLeaderboard('2026-q1');
+
+    expect(result).toEqual(cachedLeaderboard);
+    expect(cache.get).toHaveBeenCalledWith('2026-q1');
+  });
+
+  it('falls back to repository when cache misses on getLeaderboard', async () => {
+    const repository = new InMemoryRatingRepository();
+    await repository.saveLeaderboard({
+      seasonId: '2026-q1',
+      generatedAt: '2026-03-14T10:00:00.000Z',
+      entries: [{ uid: 'user-repo', rank: 1, elo: 1600, matches: 2, winRate: 1 }],
+    });
+    const cache: LeaderboardCache = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      invalidate: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new RatingService({ repository, cache });
+
+    const result = await service.getLeaderboard('2026-q1');
+
+    expect(result?.entries[0].uid).toBe('user-repo');
   });
 });
