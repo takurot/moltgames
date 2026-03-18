@@ -86,4 +86,21 @@ describe('CloudTasksRatingJobQueue', () => {
     const queue = new CloudTasksRatingJobQueue(config, mockGetAccessToken);
     await expect(queue.enqueue(job)).rejects.toThrow('Metadata server unavailable');
   });
+
+  it('normalizes gatewayBaseUrl with trailing slash to avoid double slashes in task URL', async () => {
+    const mockFetch = vi.mocked(fetch);
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const configWithSlash = { ...config, gatewayBaseUrl: 'https://gateway.example.com/' };
+    const queue = new CloudTasksRatingJobQueue(configWithSlash, mockGetAccessToken);
+    await queue.enqueue(job);
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as {
+      task: { httpRequest: { url: string } };
+    };
+    expect(body.task.httpRequest.url).toBe(
+      'https://gateway.example.com/internal/tasks/ratings/match-finished',
+    );
+  });
 });

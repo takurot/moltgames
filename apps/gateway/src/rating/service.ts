@@ -176,7 +176,13 @@ export class RatingService {
     const allRatings = await this.repository.listRatingsForSeason(season.seasonId);
     const leaderboard = buildLeaderboard(season.seasonId, allRatings);
     await this.repository.saveLeaderboard(leaderboard);
-    await this.cache?.set(leaderboard);
+    if (this.cache) {
+      try {
+        await this.cache.set(leaderboard);
+      } catch {
+        // Cache is best-effort; Firestore remains the source of truth
+      }
+    }
 
     return {
       season,
@@ -194,6 +200,12 @@ export class RatingService {
     if (cached !== undefined && cached !== null) {
       return cached;
     }
-    return this.repository.getLeaderboard(seasonId);
+    const leaderboard = await this.repository.getLeaderboard(seasonId);
+    if (leaderboard !== null && this.cache) {
+      await this.cache.set(leaderboard).catch(() => {
+        // Cache population is best-effort
+      });
+    }
+    return leaderboard;
   }
 }

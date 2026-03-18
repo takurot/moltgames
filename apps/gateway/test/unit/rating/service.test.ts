@@ -173,4 +173,58 @@ describe('rating service with leaderboard cache', () => {
 
     expect(result?.entries[0].uid).toBe('user-repo');
   });
+
+  it('populates cache from repository on getLeaderboard cache miss (read-through)', async () => {
+    const repository = new InMemoryRatingRepository();
+    const stored: Leaderboard = {
+      seasonId: '2026-q1',
+      generatedAt: '2026-03-14T10:00:00.000Z',
+      entries: [{ uid: 'user-repo', rank: 1, elo: 1600, matches: 2, winRate: 1 }],
+    };
+    await repository.saveLeaderboard(stored);
+    const cache: LeaderboardCache = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      invalidate: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new RatingService({ repository, cache });
+
+    await service.getLeaderboard('2026-q1');
+
+    expect(cache.set).toHaveBeenCalledWith(stored);
+  });
+
+  it('does not call cache.set when repository returns null on getLeaderboard', async () => {
+    const repository = new InMemoryRatingRepository();
+    const cache: LeaderboardCache = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      invalidate: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new RatingService({ repository, cache });
+
+    const result = await service.getLeaderboard('2026-q1');
+
+    expect(result).toBeNull();
+    expect(cache.set).not.toHaveBeenCalled();
+  });
+
+  it('swallows cache.set errors in processMatchResult (cache is non-critical)', async () => {
+    const repository = new InMemoryRatingRepository();
+    const cache: LeaderboardCache = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockRejectedValue(new Error('Redis connection refused')),
+      invalidate: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new RatingService({ repository, cache });
+
+    await expect(
+      service.processMatchResult({
+        matchId: 'match-1',
+        participants: ['user-1', 'user-2'],
+        winnerUid: 'user-1',
+        endedAt: '2026-03-14T10:00:00.000Z',
+      }),
+    ).resolves.not.toThrow();
+  });
 });

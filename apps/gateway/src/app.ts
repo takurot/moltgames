@@ -36,10 +36,7 @@ import {
 } from './rating/repository.js';
 import { RatingService, type MatchResultJob } from './rating/service.js';
 import { RedisLeaderboardCache, type LeaderboardCache } from './rating/leaderboard-cache.js';
-import {
-  CloudTasksRatingJobQueue,
-  getGcpAccessToken,
-} from './rating/cloud-tasks-queue.js';
+import { CloudTasksRatingJobQueue, getGcpAccessToken } from './rating/cloud-tasks-queue.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -372,7 +369,9 @@ export const createApp = async (options: AppOptions = {}) => {
 
   const leaderboardCache =
     options.leaderboardCache ??
-    (process.env.NODE_ENV !== 'test' || options.redis ? new RedisLeaderboardCache(redis) : undefined);
+    (process.env.NODE_ENV !== 'test' || options.redis
+      ? new RedisLeaderboardCache(redis)
+      : undefined);
 
   const ratingService = new RatingService(
     leaderboardCache !== undefined

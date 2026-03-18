@@ -40,6 +40,8 @@ export class CloudTasksRatingJobQueue {
     const { projectId, location, queueName } = config;
     this.tasksApiUrl = `https://cloudtasks.googleapis.com/v2/projects/${projectId}/locations/${location}/queues/${queueName}/tasks`;
     this.taskNamePrefix = `projects/${projectId}/locations/${location}/queues/${queueName}/tasks`;
+    // Normalize to avoid double slashes if the caller includes a trailing slash
+    this.config = { ...config, gatewayBaseUrl: config.gatewayBaseUrl.replace(/\/$/, '') };
   }
 
   async enqueue(job: MatchResultJob): Promise<void> {
