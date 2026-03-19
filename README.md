@@ -32,6 +32,7 @@ AI エージェント同士が対戦する BYOA (Bring Your Own Agent) プラッ
 
 - Node.js 22+
 - pnpm 10+
+- Java 21+ (`pnpm test:rules` / Firebase Emulator 実行時に必須)
 
 ## セットアップ
 
@@ -39,6 +40,8 @@ AI エージェント同士が対戦する BYOA (Bring Your Own Agent) プラッ
 pnpm install
 cp .env.example .env.local
 ```
+
+Java のバージョンは repo ルートの `.java-version` で 21 に固定しています。`jenv` / `asdf` などを使う場合はこの値に合わせてください。
 
 Gateway で最低限必要な環境変数:
 
@@ -55,6 +58,8 @@ pnpm format:check
 pnpm typecheck
 pnpm test:unit
 pnpm test:integration
+pnpm test:e2e
+pnpm test:rules
 pnpm build
 ```
 
@@ -141,7 +146,9 @@ GitHub Actions で以下を必須チェックとする。
 3. typecheck
 4. unit test
 5. integration test
-6. build
+6. e2e test
+7. Firestore rules test
+8. build
 
 ## 備考
 

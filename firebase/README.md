@@ -9,6 +9,8 @@
 
 ## ローカル開発
 
+Firebase Emulator を使うため、Java 21+ が必要です。repo ルートの `.java-version` を基準にローカル JDK を合わせてください。
+
 ```bash
 firebase emulators:start --config firebase/firebase.json
 ```
