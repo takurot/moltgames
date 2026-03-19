@@ -83,6 +83,32 @@ export class RatingService {
     this.cache = options.cache;
   }
 
+  private async syncLeaderboardCache(leaderboard: Leaderboard): Promise<void> {
+    if (!this.cache) {
+      return;
+    }
+
+    try {
+      await this.cache.set(leaderboard);
+    } catch {
+      await this.cache.invalidate(leaderboard.seasonId).catch(() => {
+        // Cache cleanup is best-effort
+      });
+    }
+  }
+
+  private async getCachedLeaderboard(seasonId: string): Promise<Leaderboard | null> {
+    if (!this.cache) {
+      return null;
+    }
+
+    try {
+      return await this.cache.get(seasonId);
+    } catch {
+      return null;
+    }
+  }
+
   private async archiveOtherActiveSeasons(activeSeasonId: string): Promise<void> {
     const seasons = await this.repository.listSeasons();
     for (const season of seasons) {
@@ -176,13 +202,7 @@ export class RatingService {
     const allRatings = await this.repository.listRatingsForSeason(season.seasonId);
     const leaderboard = buildLeaderboard(season.seasonId, allRatings);
     await this.repository.saveLeaderboard(leaderboard);
-    if (this.cache) {
-      try {
-        await this.cache.set(leaderboard);
-      } catch {
-        // Cache is best-effort; Firestore remains the source of truth
-      }
-    }
+    await this.syncLeaderboardCache(leaderboard);
 
     return {
       season,
@@ -196,15 +216,13 @@ export class RatingService {
   }
 
   async getLeaderboard(seasonId: string): Promise<Leaderboard | null> {
-    const cached = await this.cache?.get(seasonId);
-    if (cached !== undefined && cached !== null) {
+    const cached = await this.getCachedLeaderboard(seasonId);
+    if (cached !== null) {
       return cached;
     }
     const leaderboard = await this.repository.getLeaderboard(seasonId);
-    if (leaderboard !== null && this.cache) {
-      await this.cache.set(leaderboard).catch(() => {
-        // Cache population is best-effort
-      });
+    if (leaderboard !== null) {
+      await this.syncLeaderboardCache(leaderboard);
     }
     return leaderboard;
   }
