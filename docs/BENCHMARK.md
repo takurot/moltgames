@@ -7,6 +7,7 @@ This document describes how to run the local agent battle benchmark.
 - Node.js 22+
 - pnpm 10+
 - Docker / Docker Compose
+- Java 21+ (required for Firebase Emulators used by `pnpm test:rules`)
 - Dependencies installed (`pnpm install`)
 
 ## 2. Quick Local Benchmark (Recommended)

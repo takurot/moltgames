@@ -20,6 +20,7 @@ pnpm typecheck
 pnpm test:unit
 pnpm test:integration
 pnpm test:e2e
+pnpm test:rules
 pnpm build
 
 # Fix formatting

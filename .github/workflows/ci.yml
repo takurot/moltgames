@@ -25,6 +25,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -45,6 +51,9 @@ jobs:
 
       - name: E2E Test
         run: pnpm test:e2e
+
+      - name: Firestore Rules Test
+        run: pnpm test:rules
 
       - name: Build
         run: pnpm build
