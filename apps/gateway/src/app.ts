@@ -1042,3 +1042,7 @@ export const createApp = async (options: AppOptions = {}) => {
 
   return app;
 };
+      if (message.includes('not publicly accessible')) {
+        reply.status(403).send({ status: 'error', message: 'Replay is not publicly accessible' });
+        return;
+      }

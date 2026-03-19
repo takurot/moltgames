@@ -599,13 +599,13 @@ graph TD
 
 タスク:
 
-- [ ] マッチ終了時の TurnEvent 収集 → JSONL 生成
-- [ ] Redaction 処理 (秘密情報のマスク) (§8.4)
-- [ ] `replays/{seasonId}/{matchId}.jsonl.gz` への圧縮アップロード
-- [ ] Replay メタデータを Firestore に記録 (`visibility`, `redactionVersion`)
-- [ ] ダウンロード API (`GET /v1/replays/:matchId`)
+- [x] マッチ終了時の TurnEvent 収集 → JSONL 生成
+- [x] Redaction 処理 (秘密情報のマスク) (§8.4)
+- [x] `replays/{seasonId}/{matchId}.jsonl.gz` への圧縮アップロード
+- [x] Replay メタデータを Firestore に記録 (`visibility`, `redactionVersion`)
+- [x] ダウンロード API (`GET /v1/replays/:matchId`)
   - 署名付き URL 発行 (有効期限付き)
-- [ ] ユニットテスト: Redaction、JSONL 生成、アクセス制御
+- [x] ユニットテスト: Redaction、JSONL 生成、アクセス制御
 
 ---
 

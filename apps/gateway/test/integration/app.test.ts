@@ -8,6 +8,8 @@ import {
   type FirebaseIdTokenVerifier,
   type VerifiedFirebaseIdToken,
 } from '../../src/auth/firebase-auth.js';
+import { InMemoryReplayRepository } from '../../src/replay/repository.js';
+import { InMemoryReplayStorage } from '../../src/replay/storage.js';
 
 class MockVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -25,12 +27,18 @@ class MockVerifier implements FirebaseIdTokenVerifier {
 describe('Gateway Integration', () => {
   let app: FastifyInstance;
   let redis: any;
+  let replayRepository: InMemoryReplayRepository;
+  let replayStorage: InMemoryReplayStorage;
 
   beforeEach(async () => {
     redis = new RedisMock();
+    replayRepository = new InMemoryReplayRepository();
+    replayStorage = new InMemoryReplayStorage();
     app = await createApp({
       redis: redis as unknown as Redis,
       verifier: new MockVerifier(),
+      replayRepository,
+      replayStorage,
     });
     await app.ready();
   });
@@ -108,5 +116,47 @@ describe('Gateway Integration', () => {
     });
 
     expect(revokeResponse.statusCode).toBe(204);
+  });
+
+  it('GET /v1/replays/:matchId should return a signed URL for public replays', async () => {
+    await replayStorage.upload('replays/2026-q1/match-public.jsonl.gz', Buffer.from('payload'));
+    await replayRepository.saveReplay({
+      matchId: 'match-public',
+      storagePath: 'replays/2026-q1/match-public.jsonl.gz',
+      visibility: 'PUBLIC',
+      redactionVersion: 'v1',
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/replays/match-public',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      status: 'ok',
+      url: 'https://storage.example.com/signed/replays/2026-q1/match-public.jsonl.gz?expires=mock',
+    });
+  });
+
+  it('GET /v1/replays/:matchId should reject private replays', async () => {
+    await replayStorage.upload('replays/2026-q1/match-private.jsonl.gz', Buffer.from('payload'));
+    await replayRepository.saveReplay({
+      matchId: 'match-private',
+      storagePath: 'replays/2026-q1/match-private.jsonl.gz',
+      visibility: 'PRIVATE',
+      redactionVersion: 'v1',
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/replays/match-private',
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'Replay is not publicly accessible',
+    });
   });
 });

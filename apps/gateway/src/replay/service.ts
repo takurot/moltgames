@@ -1,6 +1,5 @@
 import { gzipSync } from 'node:zlib';
-import type { TurnEvent } from '@moltgames/domain';
-import type { Replay } from '@moltgames/domain';
+import type { Replay, TurnEvent } from '@moltgames/domain';
 import { applyRedaction, REDACTION_VERSION } from './redaction.js';
 import type { ReplayRepository } from './repository.js';
 import type { ReplayStorage } from './storage.js';
@@ -19,6 +18,9 @@ const buildStoragePath = (matchId: string, seasonId: string): string =>
 
 const toJsonl = (events: TurnEvent[]): string =>
   events.map((event) => JSON.stringify(event)).join('\n');
+
+const isPubliclyDownloadable = (replay: Replay): boolean =>
+  replay.visibility === 'PUBLIC' || replay.visibility === 'UNLISTED';
 
 export interface ReplayServiceOptions {
   repository: ReplayRepository;
@@ -69,6 +71,9 @@ export class ReplayService {
     const replay = await this.repository.getReplay(matchId);
     if (!replay) {
       throw new Error(`Replay not found for match: ${matchId}`);
+    }
+    if (!isPubliclyDownloadable(replay)) {
+      throw new Error(`Replay is not publicly accessible: ${matchId}`);
     }
 
     return this.storage.getSignedUrl(replay.storagePath, SIGNED_URL_EXPIRY_MS);
