@@ -101,6 +101,18 @@ describe('ReplayService', () => {
       expect(replay?.storagePath).toBe('replays/2026-q1/match-abc.jsonl.gz');
     });
 
+    it('rejects replay generation when gameId is unknown', async () => {
+      const { service, repository, storage } = makeService();
+      const events = [makeTurnEvent()];
+
+      await expect(
+        service.generateAndStore('match-unknown', 'unknown', events, '2026-03-19T10:00:00.000Z'),
+      ).rejects.toThrow('known gameId');
+
+      expect(await repository.getReplay('match-unknown')).toBeNull();
+      expect(storage.listFiles()).toHaveLength(0);
+    });
+
     it('generates valid JSONL where each line is a JSON TurnEvent', async () => {
       const { service, storage } = makeService();
       const events = [

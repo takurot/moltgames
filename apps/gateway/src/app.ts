@@ -641,10 +641,12 @@ export const createApp = async (options: AppOptions = {}) => {
           engineClient
             .getMatchMeta(session.matchId)
             .then((meta) => {
-              const gameId = meta?.gameId ?? 'unknown';
+              if (!meta?.gameId) {
+                throw new Error('Replay generation requires match metadata');
+              }
               return replayService.generateAndStore(
                 session.matchId,
-                gameId,
+                meta.gameId,
                 eventsForReplay,
                 endedAt,
               );

@@ -50,6 +50,33 @@ describe('applyRedaction', () => {
       expect(data.other).toBe('visible');
     });
 
+    it('masks secret values embedded in strings', () => {
+      const event = makeTurnEvent({
+        action: { tool: 'check_secret', args: { guess: 'SECRET-apple-7' } },
+        result: { content: 'The leaked secret is SECRET-apple-7' },
+      });
+
+      const [redacted] = applyRedaction([event], 'prompt-injection-arena');
+
+      expect(redacted.action).toEqual({
+        tool: 'check_secret',
+        args: { guess: '***REDACTED***' },
+      });
+      expect(redacted.result).toEqual({
+        content: 'The leaked secret is ***REDACTED***',
+      });
+    });
+
+    it('masks negative-seed secret values embedded in strings', () => {
+      const event = makeTurnEvent({
+        result: { content: 'SECRET-banana--5 should never appear' },
+      });
+
+      const [redacted] = applyRedaction([event], 'prompt-injection-arena');
+
+      expect(redacted.result).toEqual({ content: '***REDACTED*** should never appear' });
+    });
+
     it('does not mutate the original event', () => {
       const event = makeTurnEvent({
         result: { secret: 'mysecret' },

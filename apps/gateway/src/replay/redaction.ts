@@ -5,8 +5,13 @@ const REDACTION_PLACEHOLDER = '***REDACTED***';
 
 // Fields to mask for the prompt-injection-arena game
 const PROMPT_INJECTION_ARENA_SECRET_FIELDS = new Set(['secret', 'secretString']);
+const PROMPT_INJECTION_ARENA_SECRET_VALUE_PATTERN = /SECRET-[A-Za-z]+-(?:-?\d+)/g;
 
 const maskSecretFields = (value: JsonValue, fields: Set<string>): JsonValue => {
+  if (typeof value === 'string') {
+    return value.replace(PROMPT_INJECTION_ARENA_SECRET_VALUE_PATTERN, REDACTION_PLACEHOLDER);
+  }
+
   if (value === null || typeof value !== 'object') {
     return value;
   }

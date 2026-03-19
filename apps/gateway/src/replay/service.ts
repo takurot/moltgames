@@ -40,6 +40,10 @@ export class ReplayService {
     events: readonly TurnEvent[],
     endedAt: string,
   ): Promise<Replay> {
+    if (gameId.trim().length === 0 || gameId === 'unknown') {
+      throw new Error('Replay generation requires a known gameId');
+    }
+
     const seasonId = getSeasonId(endedAt);
     const storagePath = buildStoragePath(matchId, seasonId);
 
