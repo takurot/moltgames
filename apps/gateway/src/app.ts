@@ -826,6 +826,10 @@ export const createApp = async (options: AppOptions = {}) => {
         reply.status(404).send({ status: 'error', message: 'Replay not found' });
         return;
       }
+      if (message.includes('not publicly accessible')) {
+        reply.status(403).send({ status: 'error', message: 'Replay is not publicly accessible' });
+        return;
+      }
       reply.status(500).send({ status: 'error', message: 'Failed to get replay URL' });
     }
   });
@@ -1042,7 +1046,3 @@ export const createApp = async (options: AppOptions = {}) => {
 
   return app;
 };
-      if (message.includes('not publicly accessible')) {
-        reply.status(403).send({ status: 'error', message: 'Replay is not publicly accessible' });
-        return;
-      }
