@@ -188,6 +188,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: { accepted: true },
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -252,6 +253,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: {},
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -314,6 +316,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: {},
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -396,6 +399,7 @@ describe('Gateway WebSocket integration', () => {
           result: {},
         }),
       ),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -474,6 +478,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: {},
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({

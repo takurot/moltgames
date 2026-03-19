@@ -276,6 +276,31 @@ export const createServer = async (options: CreateServerOptions = {}) => {
     },
   );
 
+  fastify.get<{ Params: { matchId: string } }>(
+    '/matches/:matchId/meta',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['matchId'],
+          additionalProperties: false,
+          properties: {
+            matchId: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { matchId } = request.params;
+      const meta = await redisManager.getMatchMeta(matchId);
+      if (!meta || !meta.gameId) {
+        reply.status(404).send({ status: 'error', message: `Match not found: ${matchId}` });
+        return;
+      }
+      return { status: 'ok', gameId: meta.gameId };
+    },
+  );
+
   fastify.get('/healthz', async () => {
     return { status: 'ok' };
   });

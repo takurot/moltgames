@@ -87,6 +87,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /replays/{matchId} {
+      // Public replays are readable by anyone; private replays only by participants
+      allow read: if resource.data.visibility == "PUBLIC" ||
+        canReadMatch(
+          get(/databases/$(database)/documents/matches/$(matchId)).data
+        );
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
