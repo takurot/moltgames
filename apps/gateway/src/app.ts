@@ -14,7 +14,7 @@ import {
   type MCPToolDefinition,
   type ToolCallResponse,
 } from '@moltgames/mcp-protocol';
-import type { JsonValue } from '@moltgames/domain';
+import type { JsonValue, TurnEvent } from '@moltgames/domain';
 import WebSocket, { type RawData } from 'ws';
 
 import {
@@ -37,6 +37,17 @@ import {
 import { RatingService, type MatchResultJob } from './rating/service.js';
 import { RedisLeaderboardCache, type LeaderboardCache } from './rating/leaderboard-cache.js';
 import { CloudTasksRatingJobQueue, getGcpAccessToken } from './rating/cloud-tasks-queue.js';
+import {
+  FirestoreReplayRepository,
+  InMemoryReplayRepository,
+  type ReplayRepository,
+} from './replay/repository.js';
+import {
+  FirebaseReplayStorage,
+  InMemoryReplayStorage,
+  type ReplayStorage,
+} from './replay/storage.js';
+import { ReplayService } from './replay/service.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -56,6 +67,8 @@ export interface AppOptions {
   ratingRepository?: RatingRepository;
   leaderboardCache?: LeaderboardCache;
   internalTaskAuthToken?: string;
+  replayRepository?: ReplayRepository;
+  replayStorage?: ReplayStorage;
 }
 
 export interface GatewayEngineClient {
@@ -68,6 +81,7 @@ export interface GatewayEngineClient {
       args: Record<string, JsonValue>;
     },
   ): Promise<ToolCallResponse>;
+  getMatchMeta(matchId: string): Promise<{ gameId: string } | null>;
 }
 
 interface AgentSession {
@@ -114,6 +128,16 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
     },
     callTool: (matchId, request) =>
       client.post<ToolCallResponse>(`/matches/${encodeURIComponent(matchId)}/action`, request),
+    getMatchMeta: async (matchId) => {
+      try {
+        const response = await client.get<{ status: 'ok'; gameId: string }>(
+          `/matches/${encodeURIComponent(matchId)}/meta`,
+        );
+        return { gameId: response.gameId };
+      } catch {
+        return null;
+      }
+    },
   };
 };
 
@@ -425,6 +449,19 @@ export const createApp = async (options: AppOptions = {}) => {
   const engineClient = options.engineClient ?? createDefaultEngineClient();
   const reconnectGraceMs = options.reconnectGraceMs ?? DEFAULT_RECONNECT_GRACE_MS;
 
+  const isTestOrNoFirebase = process.env.NODE_ENV === 'test' || getApps().length === 0;
+  const replayRepository =
+    options.replayRepository ??
+    (isTestOrNoFirebase ? new InMemoryReplayRepository() : new FirestoreReplayRepository());
+  const replayStorage =
+    options.replayStorage ??
+    (isTestOrNoFirebase ? new InMemoryReplayStorage() : new FirebaseReplayStorage());
+  const replayService = new ReplayService({ repository: replayRepository, storage: replayStorage });
+
+  // Per-match TurnEvent accumulator (in-memory, cleared after replay generation)
+  const matchEvents = new Map<string, TurnEvent[]>();
+  const matchTurnCounters = new Map<string, number>();
+
   const sessionsById = new Map<string, AgentSession>();
   const sessionIdByMatchAgent = new Map<string, string>();
 
@@ -540,6 +577,27 @@ export const createApp = async (options: AppOptions = {}) => {
 
         sendJson(socket, normalizedResponse, app.log);
 
+        // Record TurnEvent for replay (only on successful actions)
+        if (normalizedResponse.status === 'ok') {
+          const turnCounter = (matchTurnCounters.get(session.matchId) ?? 0) + 1;
+          matchTurnCounters.set(session.matchId, turnCounter);
+
+          const turnEvent: TurnEvent = {
+            eventId: randomUUID(),
+            matchId: session.matchId,
+            turn: turnCounter,
+            actor: session.agentId,
+            action: { tool: request.tool, args: request.args } as JsonValue,
+            result: normalizedResponse.result as JsonValue,
+            latencyMs: 0,
+            timestamp: new Date().toISOString(),
+          };
+
+          const events = matchEvents.get(session.matchId) ?? [];
+          events.push(turnEvent);
+          matchEvents.set(session.matchId, events);
+        }
+
         // Notify all agents in this match about turn change or termination
         const matchSessions = Array.from(sessionsById.values()).filter(
           (s) => s.matchId === session.matchId,
@@ -557,6 +615,7 @@ export const createApp = async (options: AppOptions = {}) => {
             termination.winner === undefined
               ? null
               : (playerSessions.find((s) => s.agentId === termination.winner)?.uid ?? null);
+          const endedAt = new Date().toISOString();
 
           if (participants.length === 2) {
             ratingJobQueue
@@ -564,7 +623,7 @@ export const createApp = async (options: AppOptions = {}) => {
                 matchId: session.matchId,
                 participants,
                 winnerUid,
-                endedAt: new Date().toISOString(),
+                endedAt,
               })
               .catch((enqueueError: unknown) => {
                 app.log.error(
@@ -573,6 +632,34 @@ export const createApp = async (options: AppOptions = {}) => {
                 );
               });
           }
+
+          // Generate replay asynchronously (fire and forget)
+          const eventsForReplay = matchEvents.get(session.matchId) ?? [];
+          matchEvents.delete(session.matchId);
+          matchTurnCounters.delete(session.matchId);
+
+          engineClient
+            .getMatchMeta(session.matchId)
+            .then((meta) => {
+              if (!meta?.gameId) {
+                throw new Error('Replay generation requires match metadata');
+              }
+              return replayService.generateAndStore(
+                session.matchId,
+                meta.gameId,
+                eventsForReplay,
+                endedAt,
+              );
+            })
+            .then(() => {
+              app.log.info({ matchId: session.matchId }, 'Replay generated successfully');
+            })
+            .catch((replayError: unknown) => {
+              app.log.error(
+                { error: replayError, matchId: session.matchId },
+                'Failed to generate replay',
+              );
+            });
 
           for (const s of matchSessions) {
             sendJson(
@@ -727,6 +814,21 @@ export const createApp = async (options: AppOptions = {}) => {
       return { status: 'ok', leaderboard };
     },
   );
+
+  app.get<{ Params: { matchId: string } }>('/v1/replays/:matchId', async (request, reply) => {
+    const { matchId } = request.params;
+    try {
+      const url = await replayService.getSignedDownloadUrl(matchId);
+      return { status: 'ok', url };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        reply.status(404).send({ status: 'error', message: 'Replay not found' });
+        return;
+      }
+      reply.status(500).send({ status: 'error', message: 'Failed to get replay URL' });
+    }
+  });
 
   app.get(
     '/v1/ws',

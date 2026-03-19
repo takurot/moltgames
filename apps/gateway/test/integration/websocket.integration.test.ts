@@ -9,6 +9,8 @@ import {
   type FirebaseIdTokenVerifier,
   type VerifiedFirebaseIdToken,
 } from '../../src/auth/firebase-auth.js';
+import { InMemoryReplayRepository } from '../../src/replay/repository.js';
+import { InMemoryReplayStorage } from '../../src/replay/storage.js';
 
 class MockVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -162,6 +164,13 @@ const isToolCallResponse = (
   ((value as Record<string, unknown>).status === 'ok' ||
     (value as Record<string, unknown>).status === 'error');
 
+const isMatchEnded = (
+  value: unknown,
+): value is { type: 'match/ended'; winner?: string; reason?: string } =>
+  typeof value === 'object' &&
+  value !== null &&
+  (value as Record<string, unknown>).type === 'match/ended';
+
 describe('Gateway WebSocket integration', () => {
   const apps: FastifyInstance[] = [];
 
@@ -188,6 +197,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: { accepted: true },
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -252,6 +262,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: {},
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -314,6 +325,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: {},
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -396,6 +408,7 @@ describe('Gateway WebSocket integration', () => {
           result: {},
         }),
       ),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -474,6 +487,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: {},
       })),
+      getMatchMeta: vi.fn(async () => null),
     };
 
     const app = await createApp({
@@ -506,5 +520,84 @@ describe('Gateway WebSocket integration', () => {
     await waitForOpen(socket);
     const closeCode = await waitForClose(socket);
     expect(closeCode).toBe(1002);
+  });
+
+  it('skips replay generation when match metadata is unavailable at termination time', async () => {
+    const replayRepository = new InMemoryReplayRepository();
+    const replayStorage = new InMemoryReplayStorage();
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a prompt',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-finish',
+        status: 'ok',
+        result: { accepted: true },
+        termination: {
+          ended: true,
+          winner: 'agent-1',
+          reason: 'finished',
+        },
+      })),
+      getMatchMeta: vi.fn(async () => null),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+      replayRepository,
+      replayStorage,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-replay-metadata-miss', agentId: 'agent-1' },
+    });
+    const { connectToken } = issueTokenResponse.json();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(connectToken)}`,
+      'moltgame.v1',
+    );
+    const collector = new MessageCollector(socket);
+    await waitForOpen(socket);
+    await collector.waitFor(isSessionReady);
+    await collector.waitFor(isToolsList);
+
+    socket.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-finish',
+        args: { content: 'hello' },
+      }),
+    );
+
+    await collector.waitFor(
+      (value): value is { request_id: string; status: 'ok' } =>
+        isToolCallResponse(value) && value.request_id === 'req-finish' && value.status === 'ok',
+    );
+    await collector.waitFor(isMatchEnded);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(await replayRepository.getReplay('match-replay-metadata-miss')).toBeNull();
+    expect(replayStorage.listFiles()).toHaveLength(0);
+
+    socket.close();
   });
 });
