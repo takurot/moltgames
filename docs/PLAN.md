@@ -578,9 +578,9 @@ graph TD
 タスク:
 
 - [x] Elo レーティング計算ロジック (K ファクター設定可)
-- [ ] マッチ終了時の Cloud Tasks トリガー → レーティング更新
+- [x] マッチ終了時の Cloud Tasks トリガー → レーティング更新
 - [x] Firestore `ratings/{seasonId}_{uid}` 更新
-- [ ] リーダーボード集計 (`leaderboards/{seasonId}`)
+- [x] リーダーボード集計 (`leaderboards/{seasonId}`)
   - Redis キャッシュ併用 (§12.3)
 - [x] シーズン管理 (開始日、終了日、アーカイブ)
 - [x] ユニットテスト: Elo 計算、各種エッジケース
