@@ -42,6 +42,9 @@ export interface Match {
   region: string;
 }
 
+export const TURN_EVENT_SEATS = ['first', 'second'] as const;
+export type TurnEventSeat = (typeof TURN_EVENT_SEATS)[number];
+
 export interface TurnEvent {
   eventId: string;
   matchId: string;
@@ -51,6 +54,20 @@ export interface TurnEvent {
   result: JsonValue;
   latencyMs: number;
   timestamp: IsoDateString;
+  // SPEC §11.2 analytics fields
+  actionType: string;
+  seat: TurnEventSeat;
+  ruleVersion: string;
+  phase?: string;
+  scoreDiffBefore?: number;
+  scoreDiffAfter?: number;
+}
+
+/** TurnEvent enriched with replay integrity fields (SPEC §11.2). */
+export interface RedactedTurnEvent extends TurnEvent {
+  isHiddenInfoRedacted: boolean;
+  redactionVersion: string;
+  eventHash: string;
 }
 
 export interface Rating {

@@ -657,7 +657,7 @@ describe('Gateway WebSocket integration', () => {
         status: 'ok',
         result: { guessedSecret: 'SECRET-Alpha-42', verdict: 'miss' },
       })),
-      getMatchMeta: vi.fn(async () => ({ gameId: 'prompt-injection-arena' })),
+      getMatchMeta: vi.fn(async () => ({ gameId: 'prompt-injection-arena', ruleVersion: '1.1.0' })),
     };
 
     const app = await createApp({

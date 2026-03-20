@@ -14,7 +14,7 @@ import {
   type MCPToolDefinition,
   type ToolCallResponse,
 } from '@moltgames/mcp-protocol';
-import type { JsonValue, TurnEvent } from '@moltgames/domain';
+import type { JsonValue, TurnEvent, TurnEventSeat } from '@moltgames/domain';
 import WebSocket, { type RawData } from 'ws';
 
 import {
@@ -107,7 +107,7 @@ export interface GatewayEngineClient {
       args: Record<string, JsonValue>;
     },
   ): Promise<ToolCallResponse>;
-  getMatchMeta(matchId: string): Promise<{ gameId: string } | null>;
+  getMatchMeta(matchId: string): Promise<{ gameId: string; ruleVersion?: string | null } | null>;
 }
 
 interface AgentSession {
@@ -164,10 +164,12 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
       client.post<ToolCallResponse>(`/matches/${encodeURIComponent(matchId)}/action`, request),
     getMatchMeta: async (matchId) => {
       try {
-        const response = await client.get<{ status: 'ok'; gameId: string }>(
-          `/matches/${encodeURIComponent(matchId)}/meta`,
-        );
-        return { gameId: response.gameId };
+        const response = await client.get<{
+          status: 'ok';
+          gameId: string;
+          ruleVersion?: string | null;
+        }>(`/matches/${encodeURIComponent(matchId)}/meta`);
+        return { gameId: response.gameId, ruleVersion: response.ruleVersion ?? null };
       } catch {
         return null;
       }
@@ -502,6 +504,9 @@ export const createApp = async (options: AppOptions = {}) => {
   const matchEvents = new Map<string, TurnEvent[]>();
   const matchTurnCounters = new Map<string, number>();
   const matchGameIds = new Map<string, string>();
+  const matchRuleVersions = new Map<string, string>();
+  // Seat assignment: key = `${matchId}:${agentId}`, persists across reconnects
+  const matchAgentSeats = new Map<string, TurnEventSeat>();
   const endedMatchIds = new Set<string>();
 
   const sessionsById = new Map<string, AgentSession>();
@@ -569,7 +574,25 @@ export const createApp = async (options: AppOptions = {}) => {
     }
 
     matchGameIds.set(matchId, meta.gameId);
+    if (meta.ruleVersion) {
+      matchRuleVersions.set(matchId, meta.ruleVersion);
+    }
     return meta.gameId;
+  };
+
+  const assignAgentSeat = (matchId: string, agentId: string): TurnEventSeat => {
+    const key = `${matchId}:${agentId}`;
+    const existing = matchAgentSeats.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+    // Count distinct agents already seated for this match
+    const seatedCount = Array.from(matchAgentSeats.keys()).filter((k) =>
+      k.startsWith(`${matchId}:`),
+    ).length;
+    const seat: TurnEventSeat = seatedCount === 0 ? 'first' : 'second';
+    matchAgentSeats.set(key, seat);
+    return seat;
   };
 
   const broadcastToSpectators = (matchId: string, payload: unknown): void => {
@@ -704,6 +727,9 @@ export const createApp = async (options: AppOptions = {}) => {
             result: normalizedResponse.result as JsonValue,
             latencyMs: actionLatencyMs,
             timestamp: new Date().toISOString(),
+            actionType: request.tool,
+            seat: matchAgentSeats.get(`${session.matchId}:${session.agentId}`) ?? 'first',
+            ruleVersion: matchRuleVersions.get(session.matchId) ?? 'unknown',
           };
 
           const events = matchEvents.get(session.matchId) ?? [];
@@ -752,6 +778,8 @@ export const createApp = async (options: AppOptions = {}) => {
           const eventsForReplay = matchEvents.get(session.matchId) ?? [];
           matchEvents.delete(session.matchId);
           matchTurnCounters.delete(session.matchId);
+          matchRuleVersions.delete(session.matchId);
+          // Seat assignments are intentionally kept to survive potential late events
 
           engineClient
             .getMatchMeta(session.matchId)
@@ -1096,6 +1124,8 @@ export const createApp = async (options: AppOptions = {}) => {
         return;
       }
 
+      assignAgentSeat(claims.matchId, claims.agentId);
+
       const session: AgentSession = {
         id: randomUUID(),
         uid: claims.uid,
@@ -1273,6 +1303,8 @@ export const createApp = async (options: AppOptions = {}) => {
     sessionsById.clear();
     sessionIdByMatchAgent.clear();
     spectatorSessionsByMatch.clear();
+    matchRuleVersions.clear();
+    matchAgentSeats.clear();
   });
 
   return app;

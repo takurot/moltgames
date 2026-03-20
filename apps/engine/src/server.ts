@@ -297,7 +297,7 @@ export const createServer = async (options: CreateServerOptions = {}) => {
         reply.status(404).send({ status: 'error', message: `Match not found: ${matchId}` });
         return;
       }
-      return { status: 'ok', gameId: meta.gameId };
+      return { status: 'ok', gameId: meta.gameId, ruleVersion: meta.ruleVersion ?? null };
     },
   );
 

@@ -1,4 +1,5 @@
-import type { JsonValue, TurnEvent } from '@moltgames/domain';
+import { createHash } from 'node:crypto';
+import type { JsonValue, RedactedTurnEvent, TurnEvent } from '@moltgames/domain';
 
 export const REDACTION_VERSION = 'v1';
 const REDACTION_PLACEHOLDER = '***REDACTED***';
@@ -31,17 +32,62 @@ const maskSecretFields = (value: JsonValue, fields: Set<string>): JsonValue => {
   return result;
 };
 
+/**
+ * Compute a deterministic SHA-256 hash of all TurnEvent fields (excluding eventHash itself).
+ * The hash guarantees replay integrity and allows re-verification of disputed matches.
+ */
+const computeEventHash = (event: TurnEvent, isHiddenInfoRedacted: boolean): string => {
+  const canonical = JSON.stringify({
+    eventId: event.eventId,
+    matchId: event.matchId,
+    turn: event.turn,
+    actor: event.actor,
+    action: event.action,
+    result: event.result,
+    latencyMs: event.latencyMs,
+    timestamp: event.timestamp,
+    actionType: event.actionType,
+    seat: event.seat,
+    ruleVersion: event.ruleVersion,
+    ...(event.phase !== undefined && { phase: event.phase }),
+    ...(event.scoreDiffBefore !== undefined && { scoreDiffBefore: event.scoreDiffBefore }),
+    ...(event.scoreDiffAfter !== undefined && { scoreDiffAfter: event.scoreDiffAfter }),
+    isHiddenInfoRedacted,
+    redactionVersion: REDACTION_VERSION,
+  });
+  return createHash('sha256').update(canonical, 'utf8').digest('hex');
+};
+
+const enrichWithIntegrity = (
+  event: TurnEvent,
+  isHiddenInfoRedacted: boolean,
+): RedactedTurnEvent => {
+  const eventHash = computeEventHash(event, isHiddenInfoRedacted);
+  return {
+    ...event,
+    isHiddenInfoRedacted,
+    redactionVersion: REDACTION_VERSION,
+    eventHash,
+  };
+};
+
 const redactEvent = (event: TurnEvent, fields: Set<string>): TurnEvent => ({
   ...event,
   action: maskSecretFields(event.action, fields),
   result: maskSecretFields(event.result, fields),
 });
 
-export const applyRedaction = (events: readonly TurnEvent[], gameId: string): TurnEvent[] => {
+export const applyRedaction = (
+  events: readonly TurnEvent[],
+  gameId: string,
+): RedactedTurnEvent[] => {
   if (gameId === 'prompt-injection-arena') {
-    return events.map((event) => redactEvent(event, PROMPT_INJECTION_ARENA_SECRET_FIELDS));
+    return events.map((event) => {
+      const redacted = redactEvent(event, PROMPT_INJECTION_ARENA_SECRET_FIELDS);
+      return enrichWithIntegrity(redacted, true);
+    });
   }
 
-  // No redaction for other games
-  return events.map((event) => ({ ...event }));
+  // No content redaction for other games
+  return events.map((event) => enrichWithIntegrity({ ...event }, false));
 };

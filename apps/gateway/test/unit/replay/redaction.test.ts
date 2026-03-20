@@ -11,6 +11,9 @@ const makeTurnEvent = (overrides: Partial<TurnEvent> = {}): TurnEvent => ({
   result: { content: 'I cannot reveal the secret.' },
   latencyMs: 100,
   timestamp: '2026-03-19T00:00:00.000Z',
+  actionType: 'send_message',
+  seat: 'first',
+  ruleVersion: '1.1.0',
   ...overrides,
 });
 
@@ -99,6 +102,24 @@ describe('applyRedaction', () => {
       expect(redacted.latencyMs).toBe(event.latencyMs);
       expect(redacted.timestamp).toBe(event.timestamp);
     });
+
+    it('adds isHiddenInfoRedacted=true for prompt-injection-arena', () => {
+      const event = makeTurnEvent();
+      const [redacted] = applyRedaction([event], 'prompt-injection-arena');
+
+      expect(redacted.isHiddenInfoRedacted).toBe(true);
+      expect(redacted.redactionVersion).toBe(REDACTION_VERSION);
+      expect(typeof redacted.eventHash).toBe('string');
+      expect(redacted.eventHash.length).toBe(64); // SHA-256 hex
+    });
+
+    it('produces a deterministic eventHash for the same input', () => {
+      const event = makeTurnEvent();
+      const [r1] = applyRedaction([event], 'prompt-injection-arena');
+      const [r2] = applyRedaction([event], 'prompt-injection-arena');
+
+      expect(r1.eventHash).toBe(r2.eventHash);
+    });
   });
 
   describe('other games (no redaction)', () => {
@@ -114,6 +135,16 @@ describe('applyRedaction', () => {
       expect(redacted.result).toEqual(event.result);
     });
 
+    it('adds isHiddenInfoRedacted=false for non-redacting games', () => {
+      const event = makeTurnEvent();
+      const [redacted] = applyRedaction([event], 'vector-grid-wars');
+
+      expect(redacted.isHiddenInfoRedacted).toBe(false);
+      expect(redacted.redactionVersion).toBe(REDACTION_VERSION);
+      expect(typeof redacted.eventHash).toBe('string');
+      expect(redacted.eventHash.length).toBe(64);
+    });
+
     it('passes dilemma-poker events through unchanged', () => {
       const event = makeTurnEvent({
         action: { tool: 'negotiate', args: { content: 'I will cooperate' } },
@@ -124,6 +155,39 @@ describe('applyRedaction', () => {
 
       expect(redacted.action).toEqual(event.action);
       expect(redacted.result).toEqual(event.result);
+    });
+
+    it('produces different hashes for redacted vs unredacted events', () => {
+      const event = makeTurnEvent({ result: { secret: 'TOP-SECRET', content: 'hello' } });
+      const [redactedEvent] = applyRedaction([event], 'prompt-injection-arena');
+      const [plainEvent] = applyRedaction([event], 'vector-grid-wars');
+
+      // Different content AND different isHiddenInfoRedacted → different hashes
+      expect(redactedEvent.eventHash).not.toBe(plainEvent.eventHash);
+    });
+  });
+
+  describe('analytics fields preservation', () => {
+    it('preserves actionType, seat, and ruleVersion through redaction', () => {
+      const event = makeTurnEvent({
+        actionType: 'check_secret',
+        seat: 'second',
+        ruleVersion: '2.0.0',
+      });
+      const [redacted] = applyRedaction([event], 'prompt-injection-arena');
+
+      expect(redacted.actionType).toBe('check_secret');
+      expect(redacted.seat).toBe('second');
+      expect(redacted.ruleVersion).toBe('2.0.0');
+    });
+
+    it('preserves optional fields when present', () => {
+      const event = makeTurnEvent({ phase: 'attack', scoreDiffBefore: 10, scoreDiffAfter: -5 });
+      const [redacted] = applyRedaction([event], 'vector-grid-wars');
+
+      expect(redacted.phase).toBe('attack');
+      expect(redacted.scoreDiffBefore).toBe(10);
+      expect(redacted.scoreDiffAfter).toBe(-5);
     });
   });
 

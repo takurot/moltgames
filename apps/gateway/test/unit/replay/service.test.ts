@@ -13,6 +13,9 @@ const makeTurnEvent = (overrides: Partial<TurnEvent> = {}): TurnEvent => ({
   result: { content: 'reply' },
   latencyMs: 100,
   timestamp: '2026-03-19T00:00:00.000Z',
+  actionType: 'send_message',
+  seat: 'first',
+  ruleVersion: '1.0.0',
   ...overrides,
 });
 
@@ -135,6 +138,52 @@ describe('ReplayService', () => {
       expect(() => JSON.parse(lines[1])).not.toThrow();
       expect(JSON.parse(lines[0]).eventId).toBe('e1');
       expect(JSON.parse(lines[1]).eventId).toBe('e2');
+    });
+
+    it('includes integrity fields in JSONL output', async () => {
+      const { service, storage } = makeService();
+      const events = [makeTurnEvent({ eventId: 'e1' })];
+
+      await service.generateAndStore(
+        'match-1',
+        'vector-grid-wars',
+        events,
+        '2026-03-19T00:00:00.000Z',
+      );
+
+      const files = storage.listFiles();
+      const jsonlText = storage.getFileData(files[0]);
+      const parsed = JSON.parse(jsonlText.trim());
+      expect(typeof parsed.isHiddenInfoRedacted).toBe('boolean');
+      expect(typeof parsed.redactionVersion).toBe('string');
+      expect(typeof parsed.eventHash).toBe('string');
+      expect(parsed.eventHash.length).toBe(64);
+    });
+
+    it('includes analytics fields in JSONL output', async () => {
+      const { service, storage } = makeService();
+      const events = [
+        makeTurnEvent({
+          eventId: 'e1',
+          actionType: 'place_unit',
+          seat: 'second',
+          ruleVersion: '2.0.0',
+        }),
+      ];
+
+      await service.generateAndStore(
+        'match-1',
+        'vector-grid-wars',
+        events,
+        '2026-03-19T00:00:00.000Z',
+      );
+
+      const files = storage.listFiles();
+      const jsonlText = storage.getFileData(files[0]);
+      const parsed = JSON.parse(jsonlText.trim());
+      expect(parsed.actionType).toBe('place_unit');
+      expect(parsed.seat).toBe('second');
+      expect(parsed.ruleVersion).toBe('2.0.0');
     });
   });
 

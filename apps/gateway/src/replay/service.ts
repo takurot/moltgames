@@ -1,5 +1,5 @@
 import { gzipSync } from 'node:zlib';
-import type { Replay, TurnEvent } from '@moltgames/domain';
+import type { RedactedTurnEvent, Replay, TurnEvent } from '@moltgames/domain';
 import { applyRedaction, REDACTION_VERSION } from './redaction.js';
 import type { ReplayRepository } from './repository.js';
 import type { ReplayStorage } from './storage.js';
@@ -16,7 +16,7 @@ const getSeasonId = (endedAt: string): string => {
 const buildStoragePath = (matchId: string, seasonId: string): string =>
   `replays/${seasonId}/${matchId}.jsonl.gz`;
 
-const toJsonl = (events: TurnEvent[]): string =>
+const toJsonl = (events: RedactedTurnEvent[]): string =>
   events.map((event) => JSON.stringify(event)).join('\n');
 
 const isPubliclyDownloadable = (replay: Replay): boolean =>
