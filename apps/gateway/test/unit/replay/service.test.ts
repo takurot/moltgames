@@ -11,11 +11,14 @@ const makeTurnEvent = (overrides: Partial<TurnEvent> = {}): TurnEvent => ({
   actor: 'agent-attacker',
   action: { tool: 'send_message', args: { content: 'hello' } },
   result: { content: 'reply' },
-  latencyMs: 100,
+  actionLatencyMs: 100,
   timestamp: '2026-03-19T00:00:00.000Z',
   actionType: 'send_message',
   seat: 'first',
   ruleVersion: '1.0.0',
+  phase: 'dialogue',
+  scoreDiffBefore: 0,
+  scoreDiffAfter: 0,
   ...overrides,
 });
 

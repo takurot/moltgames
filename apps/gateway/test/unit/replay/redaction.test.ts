@@ -9,11 +9,14 @@ const makeTurnEvent = (overrides: Partial<TurnEvent> = {}): TurnEvent => ({
   actor: 'agent-attacker',
   action: { tool: 'send_message', args: { content: 'hello' } },
   result: { content: 'I cannot reveal the secret.' },
-  latencyMs: 100,
+  actionLatencyMs: 100,
   timestamp: '2026-03-19T00:00:00.000Z',
   actionType: 'send_message',
   seat: 'first',
   ruleVersion: '1.1.0',
+  phase: 'dialogue',
+  scoreDiffBefore: 0,
+  scoreDiffAfter: 0,
   ...overrides,
 });
 
@@ -99,7 +102,7 @@ describe('applyRedaction', () => {
       expect(redacted.matchId).toBe(event.matchId);
       expect(redacted.turn).toBe(event.turn);
       expect(redacted.actor).toBe(event.actor);
-      expect(redacted.latencyMs).toBe(event.latencyMs);
+      expect(redacted.actionLatencyMs).toBe(event.actionLatencyMs);
       expect(redacted.timestamp).toBe(event.timestamp);
     });
 
@@ -119,6 +122,35 @@ describe('applyRedaction', () => {
       const [r2] = applyRedaction([event], 'prompt-injection-arena');
 
       expect(r1.eventHash).toBe(r2.eventHash);
+    });
+
+    it('produces the same eventHash for semantically identical nested JSON with different key order', () => {
+      const [left] = applyRedaction(
+        [
+          makeTurnEvent({
+            action: {
+              tool: 'check_secret',
+              args: { guess: 'SECRET-Alpha-42', nested: { a: 1, b: 2 } },
+            },
+            result: { nested: { z: 1, a: 2 }, verdict: 'miss' },
+          }),
+        ],
+        'prompt-injection-arena',
+      );
+      const [right] = applyRedaction(
+        [
+          makeTurnEvent({
+            action: {
+              tool: 'check_secret',
+              args: { nested: { b: 2, a: 1 }, guess: 'SECRET-Alpha-42' },
+            },
+            result: { verdict: 'miss', nested: { a: 2, z: 1 } },
+          }),
+        ],
+        'prompt-injection-arena',
+      );
+
+      expect(left.eventHash).toBe(right.eventHash);
     });
   });
 

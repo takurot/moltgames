@@ -13,6 +13,7 @@ import {
   matchFirestoreConverter,
   ratingFirestoreConverter,
   seasonFirestoreConverter,
+  turnEventFirestoreConverter,
 } from '../../src/index.js';
 
 describe('domain package', () => {
@@ -295,6 +296,64 @@ describe('domain package', () => {
       ruleId: 'standard',
       ruleVersion: '1.1.0',
       region: 'us-central1',
+    });
+  });
+
+  it('round-trips turn event payloads with analytics fields', () => {
+    const stored = turnEventFirestoreConverter.toFirestore({
+      eventId: 'evt-1',
+      matchId: 'match-1',
+      turn: 3,
+      actor: 'agent-1',
+      action: { tool: 'negotiate', args: { message: 'hello' } },
+      result: { status: 'message_sent' },
+      actionLatencyMs: 120,
+      timestamp: '2026-03-21T00:00:00.000Z',
+      actionType: 'negotiate',
+      seat: 'first',
+      ruleVersion: '1.2.0',
+      phase: 'negotiation',
+      scoreDiffBefore: 2,
+      scoreDiffAfter: 2,
+    });
+
+    expect(stored).toEqual({
+      eventId: 'evt-1',
+      matchId: 'match-1',
+      turn: 3,
+      actor: 'agent-1',
+      action: { tool: 'negotiate', args: { message: 'hello' } },
+      result: { status: 'message_sent' },
+      actionLatencyMs: 120,
+      timestamp: '2026-03-21T00:00:00.000Z',
+      actionType: 'negotiate',
+      seat: 'first',
+      ruleVersion: '1.2.0',
+      phase: 'negotiation',
+      scoreDiffBefore: 2,
+      scoreDiffAfter: 2,
+    });
+
+    expect(
+      turnEventFirestoreConverter.fromFirestore({
+        id: 'evt-1',
+        data: () => stored,
+      }),
+    ).toEqual({
+      eventId: 'evt-1',
+      matchId: 'match-1',
+      turn: 3,
+      actor: 'agent-1',
+      action: { tool: 'negotiate', args: { message: 'hello' } },
+      result: { status: 'message_sent' },
+      actionLatencyMs: 120,
+      timestamp: '2026-03-21T00:00:00.000Z',
+      actionType: 'negotiate',
+      seat: 'first',
+      ruleVersion: '1.2.0',
+      phase: 'negotiation',
+      scoreDiffBefore: 2,
+      scoreDiffAfter: 2,
     });
   });
 });

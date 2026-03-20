@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Action, GamePlugin, TerminationResult } from './types.js';
+import type { Action, GamePlugin, TerminationResult, TurnEventAnalytics } from './types.js';
 import type { RedisManager } from '../state/redis-manager.js';
 import type { RuleRegistry } from '../rules/registry.js';
 import {
@@ -9,15 +9,35 @@ import {
   isRecord,
   type CommonErrorCode,
   type JsonValue,
+  type TurnEventSeat,
 } from '@moltgames/domain';
 
 const MAX_RETRIES = 1;
 const DEFAULT_TURN_TIMEOUT_SECONDS = 30;
 const LOCK_TTL_EXTRA_SECONDS = 5;
 
+type ProcessActionTurnEventContext = {
+  phase: string;
+  seat: TurnEventSeat;
+  scoreDiffBefore: number;
+  scoreDiffAfter: number;
+  ruleVersion: string;
+};
+
 type ProcessActionOkResponse =
-  | { request_id: string; status: 'ok'; result: JsonValue }
-  | { request_id: string; status: 'ok'; result: JsonValue; termination: TerminationResult };
+  | {
+      request_id: string;
+      status: 'ok';
+      result: JsonValue;
+      turnEventContext?: ProcessActionTurnEventContext;
+    }
+  | {
+      request_id: string;
+      status: 'ok';
+      result: JsonValue;
+      termination: TerminationResult;
+      turnEventContext?: ProcessActionTurnEventContext;
+    };
 
 type ProcessActionErrorResponse = {
   request_id: string;
@@ -325,10 +345,16 @@ export class Engine {
         return response;
       }
 
+      const actorId = isNonEmptyString(action.actor) ? action.actor : null;
+      const analyticsBefore =
+        actorId === null ? null : this.getTurnEventAnalytics(plugin, state, actorId, action);
+
       // 4. Apply Action
       const { state: newState, result } = plugin.applyAction(state, action);
       const newTurn = plugin.getTurn(newState);
       const currentTurn = parseNonNegativeInt(meta.turn) ?? newTurn;
+      const analyticsAfter =
+        actorId === null ? null : this.getTurnEventAnalytics(plugin, newState, actorId, action);
 
       // 5. Check Termination
       const termination = await plugin.checkTermination(newState);
@@ -349,9 +375,31 @@ export class Engine {
       };
       await this.redis.saveMatchMeta(matchId, newMeta);
 
+      const turnEventContext =
+        analyticsBefore === null || analyticsAfter === null
+          ? undefined
+          : {
+              phase: analyticsBefore.phase,
+              seat: analyticsBefore.seat,
+              scoreDiffBefore: analyticsBefore.scoreDiff,
+              scoreDiffAfter: analyticsAfter.scoreDiff,
+              ruleVersion: meta.ruleVersion ?? plugin.ruleVersion,
+            };
+
       const response: ProcessActionOkResponse = termination
-        ? { request_id: action.request_id, status: 'ok', result, termination }
-        : { request_id: action.request_id, status: 'ok', result };
+        ? {
+            request_id: action.request_id,
+            status: 'ok',
+            result,
+            termination,
+            ...(turnEventContext === undefined ? {} : { turnEventContext }),
+          }
+        : {
+            request_id: action.request_id,
+            status: 'ok',
+            result,
+            ...(turnEventContext === undefined ? {} : { turnEventContext }),
+          };
 
       await this.redis.markRequestIdProcessed(
         matchId,
@@ -405,20 +453,23 @@ export class Engine {
       };
     }
 
+    const base = {
+      request_id: response.request_id,
+      status: 'ok' as const,
+      result: response.result,
+      ...(response.turnEventContext === undefined
+        ? {}
+        : { turnEventContext: this.toCacheTurnEventContext(response.turnEventContext) }),
+    };
+
     if ('termination' in response) {
       return {
-        request_id: response.request_id,
-        status: 'ok',
-        result: response.result,
+        ...base,
         termination: this.toCacheTermination(response.termination),
       };
     }
 
-    return {
-      request_id: response.request_id,
-      status: 'ok',
-      result: response.result,
-    };
+    return base;
   }
 
   private toCacheTermination(termination: TerminationResult): JsonValue {
@@ -435,5 +486,33 @@ export class Engine {
     }
 
     return serialized;
+  }
+
+  private toCacheTurnEventContext(context: ProcessActionTurnEventContext): JsonValue {
+    return {
+      phase: context.phase,
+      seat: context.seat,
+      scoreDiffBefore: context.scoreDiffBefore,
+      scoreDiffAfter: context.scoreDiffAfter,
+      ruleVersion: context.ruleVersion,
+    };
+  }
+
+  private getTurnEventAnalytics(
+    plugin: GamePlugin,
+    state: unknown,
+    actorId: string,
+    action: Action,
+  ): TurnEventAnalytics {
+    const analytics = plugin.getTurnEventAnalytics?.(state, actorId, action);
+    if (analytics !== undefined) {
+      return analytics;
+    }
+
+    return {
+      phase: action.tool === 'get_status' ? 'status' : 'default',
+      seat: actorId === 'agent-2' ? 'second' : 'first',
+      scoreDiff: 0,
+    };
   }
 }

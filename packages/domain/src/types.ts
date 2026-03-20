@@ -52,15 +52,15 @@ export interface TurnEvent {
   actor: string;
   action: JsonValue;
   result: JsonValue;
-  latencyMs: number;
+  actionLatencyMs: number;
   timestamp: IsoDateString;
   // SPEC §11.2 analytics fields
   actionType: string;
   seat: TurnEventSeat;
   ruleVersion: string;
-  phase?: string;
-  scoreDiffBefore?: number;
-  scoreDiffAfter?: number;
+  phase: string;
+  scoreDiffBefore: number;
+  scoreDiffAfter: number;
 }
 
 /** TurnEvent enriched with replay integrity fields (SPEC §11.2). */

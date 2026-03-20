@@ -3,6 +3,7 @@ import {
   type ApplyActionResult,
   type GamePlugin,
   type TerminationResult,
+  type TurnEventAnalytics,
   type ValidationResult,
 } from '../../framework/types.js';
 import {
@@ -334,6 +335,22 @@ export class DilemmaPoker implements GamePlugin<DilemmaPokerState> {
     }
 
     return null;
+  }
+
+  getTurnEventAnalytics(
+    state: DilemmaPokerState,
+    actorId: string,
+    _action: Action,
+  ): TurnEventAnalytics {
+    const opponentId = actorId === state.agent1Id ? state.agent2Id : state.agent1Id;
+    const actor = state.players[actorId];
+    const opponent = state.players[opponentId];
+
+    return {
+      phase: state.phase,
+      seat: actorId === state.agent2Id ? 'second' : 'first',
+      scoreDiff: actor && opponent ? actor.chips - opponent.chips : 0,
+    };
   }
 
   redactState(state: DilemmaPokerState): DilemmaPokerState {

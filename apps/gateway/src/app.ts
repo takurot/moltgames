@@ -84,6 +84,18 @@ interface SpectatorSession {
   socket: WebSocket;
 }
 
+interface EngineTurnEventContext {
+  phase: string;
+  seat: TurnEventSeat;
+  scoreDiffBefore: number;
+  scoreDiffAfter: number;
+  ruleVersion: string;
+}
+
+type GatewayEngineToolCallResponse = ToolCallResponse & {
+  turnEventContext?: EngineTurnEventContext;
+};
+
 export interface AppOptions {
   redis?: Redis;
   verifier?: FirebaseIdTokenVerifier;
@@ -105,8 +117,9 @@ export interface GatewayEngineClient {
       tool: string;
       request_id: string;
       args: Record<string, JsonValue>;
+      actor: string;
     },
-  ): Promise<ToolCallResponse>;
+  ): Promise<GatewayEngineToolCallResponse>;
   getMatchMeta(matchId: string): Promise<{ gameId: string; ruleVersion?: string | null } | null>;
 }
 
@@ -141,6 +154,47 @@ const READ_ONLY_SPECTATOR_ERROR = {
 } as const;
 
 const toSessionLookupKey = (matchId: string, agentId: string): string => `${matchId}:${agentId}`;
+const FALLBACK_FIRST_SEAT = 'first' as const;
+
+const isTurnEventSeat = (value: unknown): value is TurnEventSeat =>
+  value === 'first' || value === 'second';
+
+const isEngineTurnEventContext = (value: unknown): value is EngineTurnEventContext => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.phase === 'string' &&
+    isTurnEventSeat(candidate.seat) &&
+    typeof candidate.scoreDiffBefore === 'number' &&
+    Number.isFinite(candidate.scoreDiffBefore) &&
+    typeof candidate.scoreDiffAfter === 'number' &&
+    Number.isFinite(candidate.scoreDiffAfter) &&
+    typeof candidate.ruleVersion === 'string' &&
+    candidate.ruleVersion.length > 0
+  );
+};
+
+const extractTurnEventContext = (value: unknown): EngineTurnEventContext | null => {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'turnEventContext' in value &&
+    isEngineTurnEventContext((value as { turnEventContext?: unknown }).turnEventContext)
+  ) {
+    return (value as { turnEventContext: EngineTurnEventContext }).turnEventContext;
+  }
+
+  return null;
+};
+
+const stripTurnEventContext = (response: GatewayEngineToolCallResponse): ToolCallResponse => {
+  const clientResponse = { ...response };
+  delete clientResponse.turnEventContext;
+  return clientResponse;
+};
 
 const createDefaultEngineClient = (): GatewayEngineClient => {
   const client = new EngineClient({ engineUrl: DEFAULT_ENGINE_URL });
@@ -161,7 +215,10 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
       return response.tools;
     },
     callTool: (matchId, request) =>
-      client.post<ToolCallResponse>(`/matches/${encodeURIComponent(matchId)}/action`, request),
+      client.post<GatewayEngineToolCallResponse>(
+        `/matches/${encodeURIComponent(matchId)}/action`,
+        request,
+      ),
     getMatchMeta: async (matchId) => {
       try {
         const response = await client.get<{
@@ -504,9 +561,6 @@ export const createApp = async (options: AppOptions = {}) => {
   const matchEvents = new Map<string, TurnEvent[]>();
   const matchTurnCounters = new Map<string, number>();
   const matchGameIds = new Map<string, string>();
-  const matchRuleVersions = new Map<string, string>();
-  // Seat assignment: key = `${matchId}:${agentId}`, persists across reconnects
-  const matchAgentSeats = new Map<string, TurnEventSeat>();
   const endedMatchIds = new Set<string>();
 
   const sessionsById = new Map<string, AgentSession>();
@@ -574,25 +628,7 @@ export const createApp = async (options: AppOptions = {}) => {
     }
 
     matchGameIds.set(matchId, meta.gameId);
-    if (meta.ruleVersion) {
-      matchRuleVersions.set(matchId, meta.ruleVersion);
-    }
     return meta.gameId;
-  };
-
-  const assignAgentSeat = (matchId: string, agentId: string): TurnEventSeat => {
-    const key = `${matchId}:${agentId}`;
-    const existing = matchAgentSeats.get(key);
-    if (existing !== undefined) {
-      return existing;
-    }
-    // Count distinct agents already seated for this match
-    const seatedCount = Array.from(matchAgentSeats.keys()).filter((k) =>
-      k.startsWith(`${matchId}:`),
-    ).length;
-    const seat: TurnEventSeat = seatedCount === 0 ? 'first' : 'second';
-    matchAgentSeats.set(key, seat);
-    return seat;
   };
 
   const broadcastToSpectators = (matchId: string, payload: unknown): void => {
@@ -697,21 +733,25 @@ export const createApp = async (options: AppOptions = {}) => {
 
         // Issue #36: measure actual action latency
         const actionStartMs = Date.now();
-        const response = await engineClient.callTool(
-          session.matchId,
-          request as {
+        const rawResponse = await engineClient.callTool(session.matchId, {
+          ...(request as {
             tool: string;
             request_id: string;
             args: Record<string, JsonValue>;
-          },
-        );
+          }),
+          actor: session.agentId,
+        });
         const actionLatencyMs = Date.now() - actionStartMs;
+        const turnEventContext = extractTurnEventContext(rawResponse);
 
-        const normalizedResponse = isToolCallResponse(response)
-          ? response
+        const normalizedResponse = isToolCallResponse(rawResponse)
+          ? rawResponse
           : mapRuntimeErrorToToolResponse(request.request_id, new Error('Invalid engine response'));
+        const clientResponse = stripTurnEventContext(
+          normalizedResponse as GatewayEngineToolCallResponse,
+        );
 
-        sendJson(socket, normalizedResponse, app.log);
+        sendJson(socket, clientResponse, app.log);
 
         // Record TurnEvent for replay (only on successful actions)
         if (normalizedResponse.status === 'ok') {
@@ -725,11 +765,14 @@ export const createApp = async (options: AppOptions = {}) => {
             actor: session.agentId,
             action: { tool: request.tool, args: request.args } as JsonValue,
             result: normalizedResponse.result as JsonValue,
-            latencyMs: actionLatencyMs,
+            actionLatencyMs,
             timestamp: new Date().toISOString(),
             actionType: request.tool,
-            seat: matchAgentSeats.get(`${session.matchId}:${session.agentId}`) ?? 'first',
-            ruleVersion: matchRuleVersions.get(session.matchId) ?? 'unknown',
+            seat: turnEventContext?.seat ?? FALLBACK_FIRST_SEAT,
+            ruleVersion: turnEventContext?.ruleVersion ?? 'unknown',
+            phase: turnEventContext?.phase ?? 'default',
+            scoreDiffBefore: turnEventContext?.scoreDiffBefore ?? 0,
+            scoreDiffAfter: turnEventContext?.scoreDiffAfter ?? 0,
           };
 
           const events = matchEvents.get(session.matchId) ?? [];
@@ -778,8 +821,6 @@ export const createApp = async (options: AppOptions = {}) => {
           const eventsForReplay = matchEvents.get(session.matchId) ?? [];
           matchEvents.delete(session.matchId);
           matchTurnCounters.delete(session.matchId);
-          matchRuleVersions.delete(session.matchId);
-          // Seat assignments are intentionally kept to survive potential late events
 
           engineClient
             .getMatchMeta(session.matchId)
@@ -1124,8 +1165,6 @@ export const createApp = async (options: AppOptions = {}) => {
         return;
       }
 
-      assignAgentSeat(claims.matchId, claims.agentId);
-
       const session: AgentSession = {
         id: randomUUID(),
         uid: claims.uid,
@@ -1303,8 +1342,6 @@ export const createApp = async (options: AppOptions = {}) => {
     sessionsById.clear();
     sessionIdByMatchAgent.clear();
     spectatorSessionsByMatch.clear();
-    matchRuleVersions.clear();
-    matchAgentSeats.clear();
   });
 
   return app;

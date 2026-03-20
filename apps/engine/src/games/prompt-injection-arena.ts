@@ -3,6 +3,7 @@ import {
   type ApplyActionResult,
   type GamePlugin,
   type TerminationResult,
+  type TurnEventAnalytics,
   type ValidationResult,
 } from '../framework/types.js';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
@@ -286,6 +287,20 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
     }
 
     return null;
+  }
+
+  getTurnEventAnalytics(
+    state: PromptInjectionArenaState,
+    actorId: string,
+    action: Action,
+  ): TurnEventAnalytics {
+    const isAttacker = actorId === state.attackerId;
+
+    return {
+      phase: action.tool === 'check_secret' ? 'secret-guess' : 'dialogue',
+      seat: isAttacker ? 'first' : 'second',
+      scoreDiff: state.leaked ? (isAttacker ? 1 : -1) : 0,
+    };
   }
 
   redactState(state: PromptInjectionArenaState): PromptInjectionArenaState {

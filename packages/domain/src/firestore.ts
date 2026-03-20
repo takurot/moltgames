@@ -107,14 +107,14 @@ export interface TurnEventDocument {
   actor: string;
   action: JsonValue;
   result: JsonValue;
-  latencyMs: number;
+  actionLatencyMs: number;
   timestamp: string;
   actionType: string;
   seat: string;
   ruleVersion: string;
-  phase?: string;
-  scoreDiffBefore?: number;
-  scoreDiffAfter?: number;
+  phase: string;
+  scoreDiffBefore: number;
+  scoreDiffAfter: number;
 }
 
 export interface RatingDocument {
@@ -155,9 +155,6 @@ export interface LeaderboardDocument {
 
 const isOptionalNonEmptyString = (value: unknown): value is string | undefined =>
   value === undefined || isNonEmptyString(value);
-
-const isOptionalFiniteNumber = (value: unknown): value is number | undefined =>
-  value === undefined || (typeof value === 'number' && Number.isFinite(value));
 
 const isMatchParticipantDocument = (value: unknown): value is MatchParticipantDocument => {
   if (!isRecord(value)) {
@@ -233,16 +230,18 @@ export const isTurnEventDocument = (value: unknown): value is TurnEventDocument 
     isNonEmptyString(value.actor) &&
     isJsonValue(value.action) &&
     isJsonValue(value.result) &&
-    typeof value.latencyMs === 'number' &&
-    value.latencyMs >= 0 &&
+    typeof value.actionLatencyMs === 'number' &&
+    value.actionLatencyMs >= 0 &&
     isNonEmptyString(value.timestamp) &&
     isNonEmptyString(value.actionType) &&
     typeof value.seat === 'string' &&
     turnEventSeatSet.has(value.seat as TurnEventSeat) &&
     isNonEmptyString(value.ruleVersion) &&
-    isOptionalNonEmptyString(value.phase) &&
-    isOptionalFiniteNumber(value.scoreDiffBefore) &&
-    isOptionalFiniteNumber(value.scoreDiffAfter)
+    isNonEmptyString(value.phase) &&
+    typeof value.scoreDiffBefore === 'number' &&
+    Number.isFinite(value.scoreDiffBefore) &&
+    typeof value.scoreDiffAfter === 'number' &&
+    Number.isFinite(value.scoreDiffAfter)
   );
 };
 
@@ -441,14 +440,14 @@ export const turnEventFirestoreConverter = createValidatedFirestoreConverter<
     actor: model.actor,
     action: model.action,
     result: model.result,
-    latencyMs: model.latencyMs,
+    actionLatencyMs: model.actionLatencyMs,
     timestamp: model.timestamp,
     actionType: model.actionType,
     seat: model.seat,
     ruleVersion: model.ruleVersion,
-    ...(model.phase !== undefined && { phase: model.phase }),
-    ...(model.scoreDiffBefore !== undefined && { scoreDiffBefore: model.scoreDiffBefore }),
-    ...(model.scoreDiffAfter !== undefined && { scoreDiffAfter: model.scoreDiffAfter }),
+    phase: model.phase,
+    scoreDiffBefore: model.scoreDiffBefore,
+    scoreDiffAfter: model.scoreDiffAfter,
   }),
   parse: (stored) => ({
     eventId: stored.eventId,
@@ -457,14 +456,14 @@ export const turnEventFirestoreConverter = createValidatedFirestoreConverter<
     actor: stored.actor,
     action: stored.action,
     result: stored.result,
-    latencyMs: stored.latencyMs,
+    actionLatencyMs: stored.actionLatencyMs,
     timestamp: stored.timestamp,
     actionType: stored.actionType,
     seat: stored.seat as TurnEventSeat,
     ruleVersion: stored.ruleVersion,
-    ...(stored.phase !== undefined && { phase: stored.phase }),
-    ...(stored.scoreDiffBefore !== undefined && { scoreDiffBefore: stored.scoreDiffBefore }),
-    ...(stored.scoreDiffAfter !== undefined && { scoreDiffAfter: stored.scoreDiffAfter }),
+    phase: stored.phase,
+    scoreDiffBefore: stored.scoreDiffBefore,
+    scoreDiffAfter: stored.scoreDiffAfter,
   }),
   validate: isTurnEventDocument,
 });

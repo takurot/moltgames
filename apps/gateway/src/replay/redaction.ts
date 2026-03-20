@@ -8,6 +8,21 @@ const REDACTION_PLACEHOLDER = '***REDACTED***';
 const PROMPT_INJECTION_ARENA_SECRET_FIELDS = new Set(['secret', 'secretString']);
 const PROMPT_INJECTION_ARENA_SECRET_VALUE_PATTERN = /SECRET-[A-Za-z]+-(?:-?\d+)/g;
 
+const stableSerialize = (value: JsonValue): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
+      .join(',')}}`;
+  }
+
+  return JSON.stringify(value);
+};
+
 const maskSecretFields = (value: JsonValue, fields: Set<string>): JsonValue => {
   if (typeof value === 'string') {
     return value.replace(PROMPT_INJECTION_ARENA_SECRET_VALUE_PATTERN, REDACTION_PLACEHOLDER);
@@ -37,21 +52,21 @@ const maskSecretFields = (value: JsonValue, fields: Set<string>): JsonValue => {
  * The hash guarantees replay integrity and allows re-verification of disputed matches.
  */
 const computeEventHash = (event: TurnEvent, isHiddenInfoRedacted: boolean): string => {
-  const canonical = JSON.stringify({
+  const canonical = stableSerialize({
     eventId: event.eventId,
     matchId: event.matchId,
     turn: event.turn,
     actor: event.actor,
     action: event.action,
     result: event.result,
-    latencyMs: event.latencyMs,
+    actionLatencyMs: event.actionLatencyMs,
     timestamp: event.timestamp,
     actionType: event.actionType,
     seat: event.seat,
     ruleVersion: event.ruleVersion,
-    ...(event.phase !== undefined && { phase: event.phase }),
-    ...(event.scoreDiffBefore !== undefined && { scoreDiffBefore: event.scoreDiffBefore }),
-    ...(event.scoreDiffAfter !== undefined && { scoreDiffAfter: event.scoreDiffAfter }),
+    phase: event.phase,
+    scoreDiffBefore: event.scoreDiffBefore,
+    scoreDiffAfter: event.scoreDiffAfter,
     isHiddenInfoRedacted,
     redactionVersion: REDACTION_VERSION,
   });
