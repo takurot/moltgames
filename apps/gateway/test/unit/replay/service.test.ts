@@ -155,6 +155,21 @@ describe('ReplayService', () => {
       expect(url.length).toBeGreaterThan(0);
     });
 
+    it('rejects download URLs for private replays', async () => {
+      const { service, repository, storage } = makeService();
+      await storage.upload('replays/2026-q1/match-private.jsonl.gz', Buffer.from('payload'));
+      await repository.saveReplay({
+        matchId: 'match-private',
+        storagePath: 'replays/2026-q1/match-private.jsonl.gz',
+        visibility: 'PRIVATE',
+        redactionVersion: 'v1',
+      });
+
+      await expect(service.getSignedDownloadUrl('match-private')).rejects.toThrow(
+        'publicly accessible',
+      );
+    });
+
     it('throws if replay does not exist', async () => {
       const { service } = makeService();
 
