@@ -4,7 +4,11 @@ import RedisMock from 'ioredis-mock';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket, { type RawData } from 'ws';
 
-import { createApp, type GatewayEngineClient } from '../../src/app.js';
+import {
+  createApp,
+  type GatewayEngineClient,
+  type SpectatorAccessController,
+} from '../../src/app.js';
 import {
   type FirebaseIdTokenVerifier,
   type VerifiedFirebaseIdToken,
@@ -14,15 +18,22 @@ import { InMemoryReplayStorage } from '../../src/replay/storage.js';
 
 class MockVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(idToken: string): Promise<VerifiedFirebaseIdToken> {
-    if (idToken !== 'valid-token') {
-      throw new Error('Invalid token');
+    if (idToken === 'valid-token') {
+      return {
+        uid: 'test-user',
+        providerId: 'google.com',
+        customClaims: { roles: ['player'] },
+      };
+    }
+    if (idToken === 'spectator-token') {
+      return {
+        uid: 'spectator-user',
+        providerId: 'google.com',
+        customClaims: { roles: ['spectator'] },
+      };
     }
 
-    return {
-      uid: 'test-user',
-      providerId: 'google.com',
-      customClaims: { roles: ['player'] },
-    };
+    throw new Error('Invalid token');
   }
 }
 
@@ -170,6 +181,32 @@ const isMatchEnded = (
   typeof value === 'object' &&
   value !== null &&
   (value as Record<string, unknown>).type === 'match/ended';
+
+const isSpectatorReady = (
+  value: unknown,
+): value is { type: 'spectator/ready'; match_id: string; session_id: string } =>
+  typeof value === 'object' &&
+  value !== null &&
+  (value as Record<string, unknown>).type === 'spectator/ready' &&
+  typeof (value as Record<string, unknown>).match_id === 'string' &&
+  typeof (value as Record<string, unknown>).session_id === 'string';
+
+const isMatchEvent = (
+  value: unknown,
+): value is {
+  type: 'match/event';
+  event: {
+    actor: string;
+    turn: number;
+    action: Record<string, unknown>;
+    result: Record<string, unknown>;
+  };
+} =>
+  typeof value === 'object' &&
+  value !== null &&
+  (value as Record<string, unknown>).type === 'match/event' &&
+  typeof (value as Record<string, unknown>).event === 'object' &&
+  (value as Record<string, unknown>).event !== null;
 
 describe('Gateway WebSocket integration', () => {
   const apps: FastifyInstance[] = [];
@@ -597,6 +634,194 @@ describe('Gateway WebSocket integration', () => {
 
     expect(await replayRepository.getReplay('match-replay-metadata-miss')).toBeNull();
     expect(replayStorage.listFiles()).toHaveLength(0);
+
+    socket.close();
+  });
+
+  it('streams redacted match events to spectator sockets', async () => {
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'check_secret',
+          description: 'Guess the secret',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-spectator',
+        status: 'ok',
+        result: { guessedSecret: 'SECRET-Alpha-42', verdict: 'miss' },
+      })),
+      getMatchMeta: vi.fn(async () => ({ gameId: 'prompt-injection-arena' })),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-spectator', agentId: 'agent-1' },
+    });
+    const { connectToken } = issueTokenResponse.json<{ connectToken: string }>();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const spectatorSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws/spectate?match_id=match-spectator`,
+      'moltgame.v1',
+      { headers: { authorization: 'Bearer spectator-token' } },
+    );
+    const spectatorCollector = new MessageCollector(spectatorSocket);
+    await waitForOpen(spectatorSocket);
+    await spectatorCollector.waitFor(isSpectatorReady);
+
+    const playerSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(connectToken)}`,
+      'moltgame.v1',
+    );
+    const playerCollector = new MessageCollector(playerSocket);
+    await waitForOpen(playerSocket);
+    await playerCollector.waitFor(isSessionReady);
+    await playerCollector.waitFor(isToolsList);
+
+    playerSocket.send(
+      JSON.stringify({
+        tool: 'check_secret',
+        request_id: 'req-spectator',
+        args: { guess: 'SECRET-Alpha-42' },
+      }),
+    );
+
+    const event = await spectatorCollector.waitFor(isMatchEvent);
+    expect(event.event.actor).toBe('agent-1');
+    expect(event.event.turn).toBe(1);
+    expect(event.event.action).toEqual({ tool: 'check_secret', args: { guess: '***REDACTED***' } });
+    expect(event.event.result).toEqual({ guessedSecret: '***REDACTED***', verdict: 'miss' });
+
+    spectatorSocket.close();
+    playerSocket.close();
+  });
+
+  it('rejects spectator access to private matches when access controller denies', async () => {
+    const spectatorAccessController: SpectatorAccessController = {
+      authorize: vi.fn(async () => ({
+        allowed: false,
+        reason: 'Match is private',
+      })),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      spectatorAccessController,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const spectatorSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws/spectate?match_id=private-match`,
+      'moltgame.v1',
+      { headers: { authorization: 'Bearer spectator-token' } },
+    );
+    await waitForOpen(spectatorSocket);
+    expect(await waitForClose(spectatorSocket)).toBe(1008);
+  });
+
+  it('returns MATCH_ENDED error for tool calls after match termination', async () => {
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a message',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-end',
+        status: 'ok',
+        result: {},
+        termination: { ended: true, winner: 'agent-1', reason: 'VICTORY' },
+      })),
+      getMatchMeta: vi.fn(async () => null),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-ended-test', agentId: 'agent-1' },
+    });
+    const { connectToken } = issueTokenResponse.json<{ connectToken: string }>();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(connectToken)}`,
+      'moltgame.v1',
+    );
+    const collector = new MessageCollector(socket);
+    await waitForOpen(socket);
+    await collector.waitFor(isSessionReady);
+    await collector.waitFor(isToolsList);
+
+    // First call ends the match
+    socket.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-end',
+        args: { content: 'hello' },
+      }),
+    );
+    await collector.waitFor(isMatchEnded);
+
+    // Second call after match ended should return MATCH_ENDED error
+    socket.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-after-end',
+        args: { content: 'hello' },
+      }),
+    );
+
+    const errorResponse = await collector.waitFor(
+      (v): v is { request_id: string; status: 'error'; error: { code: string } } =>
+        isToolCallResponse(v) &&
+        v.request_id === 'req-after-end' &&
+        v.status === 'error' &&
+        typeof (v as Record<string, unknown>).error === 'object',
+    );
+    expect((errorResponse.error as { code: string }).code).toBe('MATCH_ENDED');
 
     socket.close();
   });

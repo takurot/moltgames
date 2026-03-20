@@ -48,6 +48,7 @@ import {
   type ReplayStorage,
 } from './replay/storage.js';
 import { ReplayService } from './replay/service.js';
+import { applyRedaction } from './replay/redaction.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -57,6 +58,30 @@ class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
       customClaims: {},
     };
   }
+}
+
+interface SpectatorAuthorizationInput {
+  matchId: string;
+  viewerUid: string | null;
+  claims: VerifiedFirebaseIdToken | null;
+}
+
+interface SpectatorAuthorizationResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+export interface SpectatorAccessController {
+  authorize(
+    input: SpectatorAuthorizationInput,
+  ): Promise<SpectatorAuthorizationResult> | SpectatorAuthorizationResult;
+}
+
+interface SpectatorSession {
+  id: string;
+  matchId: string;
+  viewerUid: string | null;
+  socket: WebSocket;
 }
 
 export interface AppOptions {
@@ -69,6 +94,7 @@ export interface AppOptions {
   internalTaskAuthToken?: string;
   replayRepository?: ReplayRepository;
   replayStorage?: ReplayStorage;
+  spectatorAccessController?: SpectatorAccessController;
 }
 
 export interface GatewayEngineClient {
@@ -105,6 +131,14 @@ const DEFAULT_ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:8081';
 const DEFAULT_RECONNECT_GRACE_MS = 20_000;
 const RECONNECT_BACKOFF_INITIAL_MS = 1_000;
 const RECONNECT_BACKOFF_MAX_MS = 8_000;
+const READ_ONLY_SPECTATOR_ERROR = {
+  type: 'error',
+  error: {
+    code: 'INVALID_REQUEST',
+    message: 'Spectator connections are read-only',
+    retryable: false,
+  },
+} as const;
 
 const toSessionLookupKey = (matchId: string, agentId: string): string => `${matchId}:${agentId}`;
 
@@ -211,6 +245,10 @@ const isSecretMatch = (actual: string, expected: string): boolean => {
 };
 
 const serializeTools = (tools: MCPToolDefinition[]): string => JSON.stringify(tools);
+
+const defaultSpectatorAccessController: SpectatorAccessController = {
+  authorize: async () => ({ allowed: true }),
+};
 
 interface MinimalLogger {
   warn(msg: string): void;
@@ -457,13 +495,18 @@ export const createApp = async (options: AppOptions = {}) => {
     options.replayStorage ??
     (isTestOrNoFirebase ? new InMemoryReplayStorage() : new FirebaseReplayStorage());
   const replayService = new ReplayService({ repository: replayRepository, storage: replayStorage });
+  const spectatorAccessController =
+    options.spectatorAccessController ?? defaultSpectatorAccessController;
 
   // Per-match TurnEvent accumulator (in-memory, cleared after replay generation)
   const matchEvents = new Map<string, TurnEvent[]>();
   const matchTurnCounters = new Map<string, number>();
+  const matchGameIds = new Map<string, string>();
+  const endedMatchIds = new Set<string>();
 
   const sessionsById = new Map<string, AgentSession>();
   const sessionIdByMatchAgent = new Map<string, string>();
+  const spectatorSessionsByMatch = new Map<string, Map<string, SpectatorSession>>();
 
   const clearSessionTimer = (session: AgentSession): void => {
     if (session.forfeitTimer !== null) {
@@ -514,6 +557,49 @@ export const createApp = async (options: AppOptions = {}) => {
     await Promise.all(sessions.map((s) => refreshToolsAndNotify(s)));
   };
 
+  const getMatchGameId = async (matchId: string): Promise<string | null> => {
+    const cached = matchGameIds.get(matchId);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const meta = await engineClient.getMatchMeta(matchId);
+    if (!meta?.gameId) {
+      return null;
+    }
+
+    matchGameIds.set(matchId, meta.gameId);
+    return meta.gameId;
+  };
+
+  const broadcastToSpectators = (matchId: string, payload: unknown): void => {
+    const spectators = spectatorSessionsByMatch.get(matchId);
+    if (!spectators) {
+      return;
+    }
+
+    for (const session of spectators.values()) {
+      sendJson(session.socket, payload, app.log);
+    }
+  };
+
+  const broadcastSpectatorEvent = async (matchId: string, event: TurnEvent): Promise<void> => {
+    const gameId = await getMatchGameId(matchId);
+    if (!gameId) {
+      app.log.warn(
+        { matchId },
+        'Skipped spectator event broadcast because game metadata is missing',
+      );
+      return;
+    }
+
+    const [redactedEvent] = applyRedaction([event], gameId);
+    broadcastToSpectators(matchId, {
+      type: 'match/event',
+      event: redactedEvent,
+    });
+  };
+
   const bindSocketHandlers = (session: AgentSession): void => {
     const socket = session.socket;
     if (socket === null) {
@@ -547,6 +633,21 @@ export const createApp = async (options: AppOptions = {}) => {
         const request = parseToolCallRequest(payload);
         requestId = request.request_id;
 
+        // Issue #41: return MATCH_ENDED if the match has already terminated
+        if (endedMatchIds.has(session.matchId)) {
+          const response: ToolCallResponse = {
+            request_id: request.request_id,
+            status: 'error',
+            error: {
+              code: 'MATCH_ENDED',
+              message: 'Match has already ended',
+              retryable: false,
+            },
+          };
+          sendJson(socket, response, app.log);
+          return;
+        }
+
         const isToolAvailable = session.tools.some((tool) => tool.name === request.tool);
         if (!isToolAvailable) {
           const response: ToolCallResponse = {
@@ -562,6 +663,8 @@ export const createApp = async (options: AppOptions = {}) => {
           return;
         }
 
+        // Issue #36: measure actual action latency
+        const actionStartMs = Date.now();
         const response = await engineClient.callTool(
           session.matchId,
           request as {
@@ -570,6 +673,7 @@ export const createApp = async (options: AppOptions = {}) => {
             args: Record<string, JsonValue>;
           },
         );
+        const actionLatencyMs = Date.now() - actionStartMs;
 
         const normalizedResponse = isToolCallResponse(response)
           ? response
@@ -589,13 +693,15 @@ export const createApp = async (options: AppOptions = {}) => {
             actor: session.agentId,
             action: { tool: request.tool, args: request.args } as JsonValue,
             result: normalizedResponse.result as JsonValue,
-            latencyMs: 0,
+            latencyMs: actionLatencyMs,
             timestamp: new Date().toISOString(),
           };
 
           const events = matchEvents.get(session.matchId) ?? [];
           events.push(turnEvent);
           matchEvents.set(session.matchId, events);
+
+          await broadcastSpectatorEvent(session.matchId, turnEvent);
         }
 
         // Notify all agents in this match about turn change or termination
@@ -661,17 +767,18 @@ export const createApp = async (options: AppOptions = {}) => {
               );
             });
 
+          // Mark match as ended to block subsequent tool calls (Issue #41)
+          endedMatchIds.add(session.matchId);
+
+          const endedPayload = {
+            type: 'match/ended',
+            winner: termination.winner,
+            reason: termination.reason,
+          };
           for (const s of matchSessions) {
-            sendJson(
-              s.socket,
-              {
-                type: 'match/ended',
-                winner: termination.winner,
-                reason: termination.reason,
-              },
-              app.log,
-            );
+            sendJson(s.socket, endedPayload, app.log);
           }
+          broadcastToSpectators(session.matchId, endedPayload);
         } else {
           await notifyMatchSessionsOfChange(session.matchId);
         }
@@ -1025,6 +1132,105 @@ export const createApp = async (options: AppOptions = {}) => {
     },
   );
 
+  app.get(
+    '/v1/ws/spectate',
+    { websocket: true },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (connection: any, request) => {
+      const socket = connection.socket || (connection as unknown as WebSocket);
+      if (!socket) {
+        app.log.warn('Spectator WebSocket connection opened but socket is missing');
+        return;
+      }
+
+      const originHeader =
+        typeof request.headers.origin === 'string' ? request.headers.origin : undefined;
+      if (!isOriginAllowed(originHeader, allowedOrigins)) {
+        app.log.warn({ originHeader }, 'Origin not allowed');
+        socket.close(1008, 'Origin not allowed');
+        return;
+      }
+
+      const requestedProtocols = parseRequestedProtocols(request.headers['sec-websocket-protocol']);
+      if (!requestedProtocols.includes(SUPPORTED_WS_PROTOCOL)) {
+        app.log.warn({ requestedProtocols }, 'Unsupported protocol');
+        socket.close(1002, 'Unsupported protocol');
+        return;
+      }
+
+      const query = request.query as Record<string, unknown>;
+      const matchId = getQueryStringValue(query.match_id);
+      if (matchId === null) {
+        socket.close(1008, 'match_id is required');
+        return;
+      }
+
+      let claims: VerifiedFirebaseIdToken | null = null;
+      const authorizationHeader =
+        typeof request.headers.authorization === 'string'
+          ? request.headers.authorization
+          : undefined;
+      const bearerToken = getBearerToken(authorizationHeader);
+      if (bearerToken !== null) {
+        try {
+          claims = await verifier.verifyIdToken(bearerToken);
+        } catch (error) {
+          app.log.warn({ error, matchId }, 'Invalid spectator authorization token');
+          socket.close(1008, 'Unauthorized spectator');
+          return;
+        }
+      }
+
+      const authorization = await spectatorAccessController.authorize({
+        matchId,
+        viewerUid: claims?.uid ?? null,
+        claims,
+      });
+      if (!authorization.allowed) {
+        socket.close(1008, authorization.reason ?? 'Spectator access denied');
+        return;
+      }
+
+      const session: SpectatorSession = {
+        id: randomUUID(),
+        matchId,
+        viewerUid: claims?.uid ?? null,
+        socket,
+      };
+      const spectators =
+        spectatorSessionsByMatch.get(matchId) ?? new Map<string, SpectatorSession>();
+      spectators.set(session.id, session);
+      spectatorSessionsByMatch.set(matchId, spectators);
+
+      sendJson(
+        socket,
+        {
+          type: 'spectator/ready',
+          session_id: session.id,
+          match_id: matchId,
+          viewer_uid: session.viewerUid,
+        },
+        app.log,
+      );
+
+      socket.on('message', () => {
+        sendJson(socket, READ_ONLY_SPECTATOR_ERROR, app.log);
+      });
+
+      socket.on('close', () => {
+        const currentSpectators = spectatorSessionsByMatch.get(matchId);
+        currentSpectators?.delete(session.id);
+        if (currentSpectators?.size === 0) {
+          spectatorSessionsByMatch.delete(matchId);
+        }
+      });
+
+      socket.on('error', (error: Error) => {
+        app.log.warn({ error, matchId }, 'Spectator WebSocket connection error');
+      });
+    },
+  );
+
   app.addHook('onClose', async () => {
     for (const session of sessionsById.values()) {
       clearSessionTimer(session);
@@ -1040,8 +1246,24 @@ export const createApp = async (options: AppOptions = {}) => {
         session.socket.close(1012, 'DRAINING');
       }
     }
+    for (const spectators of spectatorSessionsByMatch.values()) {
+      for (const spectator of spectators.values()) {
+        if (spectator.socket.readyState === WebSocket.OPEN) {
+          sendJson(
+            spectator.socket,
+            {
+              type: 'DRAINING',
+              reconnect_after_ms: RECONNECT_BACKOFF_INITIAL_MS,
+            },
+            app.log,
+          );
+          spectator.socket.close(1012, 'DRAINING');
+        }
+      }
+    }
     sessionsById.clear();
     sessionIdByMatchAgent.clear();
+    spectatorSessionsByMatch.clear();
   });
 
   return app;
