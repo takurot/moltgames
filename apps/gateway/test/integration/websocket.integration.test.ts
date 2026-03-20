@@ -87,6 +87,10 @@ class MessageCollector {
       }
     }
   }
+
+  snapshot(): unknown[] {
+    return [...this.messages];
+  }
 }
 
 const waitForOpen = (socket: WebSocket): Promise<void> =>
@@ -824,5 +828,95 @@ describe('Gateway WebSocket integration', () => {
     expect((errorResponse.error as { code: string }).code).toBe('MATCH_ENDED');
 
     socket.close();
+  });
+
+  it('does not fail player tool calls when spectator broadcast fails', async () => {
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a message',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-broadcast-failure',
+        status: 'ok',
+        result: { accepted: true },
+      })),
+      getMatchMeta: vi.fn(async () => {
+        throw new Error('metadata unavailable');
+      }),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-broadcast-failure', agentId: 'agent-1' },
+    });
+    const { connectToken } = issueTokenResponse.json<{ connectToken: string }>();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const spectatorSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws/spectate?match_id=match-broadcast-failure`,
+      'moltgame.v1',
+    );
+    const spectatorCollector = new MessageCollector(spectatorSocket);
+    await waitForOpen(spectatorSocket);
+    await spectatorCollector.waitFor(isSpectatorReady);
+
+    const playerSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(connectToken)}`,
+      'moltgame.v1',
+    );
+    const playerCollector = new MessageCollector(playerSocket);
+    await waitForOpen(playerSocket);
+    await playerCollector.waitFor(isSessionReady);
+    await playerCollector.waitFor(isToolsList);
+
+    playerSocket.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-broadcast-failure',
+        args: { content: 'hello' },
+      }),
+    );
+
+    const response = await playerCollector.waitFor(
+      (value): value is { request_id: string; status: 'ok'; result: { accepted: boolean } } =>
+        isToolCallResponse(value) &&
+        value.request_id === 'req-broadcast-failure' &&
+        value.status === 'ok',
+    );
+    expect(response.result).toEqual({ accepted: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const duplicateErrors = playerCollector
+      .snapshot()
+      .filter(
+        (value) =>
+          isToolCallResponse(value) &&
+          value.request_id === 'req-broadcast-failure' &&
+          value.status === 'error',
+      );
+    expect(duplicateErrors).toHaveLength(0);
+
+    spectatorSocket.close();
+    playerSocket.close();
   });
 });

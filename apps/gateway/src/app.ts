@@ -600,6 +600,15 @@ export const createApp = async (options: AppOptions = {}) => {
     });
   };
 
+  const queueSpectatorEventBroadcast = (matchId: string, event: TurnEvent): void => {
+    void broadcastSpectatorEvent(matchId, event).catch((error: unknown) => {
+      app.log.warn(
+        { error, matchId, eventId: event.eventId },
+        'Failed to broadcast spectator event',
+      );
+    });
+  };
+
   const bindSocketHandlers = (session: AgentSession): void => {
     const socket = session.socket;
     if (socket === null) {
@@ -701,7 +710,7 @@ export const createApp = async (options: AppOptions = {}) => {
           events.push(turnEvent);
           matchEvents.set(session.matchId, events);
 
-          await broadcastSpectatorEvent(session.matchId, turnEvent);
+          queueSpectatorEventBroadcast(session.matchId, turnEvent);
         }
 
         // Notify all agents in this match about turn change or termination
