@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from '@moltgames/domain';
+import type { JsonObject, JsonValue, TurnEventSeat } from '@moltgames/domain';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
 import type { LoadedGameRule } from '@moltgames/rules';
 
@@ -6,6 +6,7 @@ export interface Action {
   tool: string;
   request_id: string;
   args: JsonObject;
+  actor?: string;
 }
 
 export interface ValidationResult {
@@ -25,6 +26,12 @@ export interface TerminationResult {
   reason?: string;
 }
 
+export interface TurnEventAnalytics {
+  phase: string;
+  seat: TurnEventSeat;
+  scoreDiff: number;
+}
+
 export interface GamePlugin<S = unknown> {
   gameId: string;
   ruleVersion: string;
@@ -36,5 +43,6 @@ export interface GamePlugin<S = unknown> {
   validateAction(state: S, action: Action): ValidationResult;
   applyAction(state: S, action: Action): ApplyActionResult<S>;
   checkTermination(state: S): TerminationResult | Promise<TerminationResult | null> | null;
+  getTurnEventAnalytics?(state: S, actorId: string, action: Action): TurnEventAnalytics;
   redactState?(state: S): S;
 }

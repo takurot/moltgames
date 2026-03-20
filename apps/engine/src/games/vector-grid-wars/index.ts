@@ -3,6 +3,7 @@ import {
   type ApplyActionResult,
   type GamePlugin,
   type TerminationResult,
+  type TurnEventAnalytics,
   type ValidationResult,
 } from '../../framework/types.js';
 import type { MCPToolDefinition } from '@moltgames/mcp-protocol';
@@ -321,8 +322,30 @@ export class VectorGridWars implements GamePlugin<VectorGridWarsState> {
     return null;
   }
 
+  getTurnEventAnalytics(
+    state: VectorGridWarsState,
+    actorId: string,
+    _action: Action,
+  ): TurnEventAnalytics {
+    const opponentId = actorId === state.agent1Id ? state.agent2Id : state.agent1Id;
+
+    return {
+      phase: 'main',
+      seat: actorId === state.agent2Id ? 'second' : 'first',
+      scoreDiff:
+        this.countControlledCells(state, actorId) - this.countControlledCells(state, opponentId),
+    };
+  }
+
   private inBounds(x: number, y: number, size: number): boolean {
     return x >= 0 && x < size && y >= 0 && y < size;
+  }
+
+  private countControlledCells(state: VectorGridWarsState, ownerId: string): number {
+    return state.grid.reduce(
+      (count, row) => count + row.filter((cell) => cell.owner === ownerId).length,
+      0,
+    );
   }
 
   private cloneState(state: VectorGridWarsState): VectorGridWarsState {

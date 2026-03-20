@@ -100,6 +100,13 @@ class MockGamePlugin implements GamePlugin<any> {
   checkTermination() {
     return null;
   }
+  getTurnEventAnalytics(state: any, actorId: string) {
+    return {
+      phase: 'default',
+      seat: actorId === 'agent-2' ? 'second' : 'first',
+      scoreDiff: state.value,
+    } as const;
+  }
 }
 
 class RuleAwareGamePlugin extends MockGamePlugin {
@@ -178,6 +185,30 @@ describe('Engine', () => {
 
     const meta = await redisManager.getMatchMeta(matchId);
     expect(meta).toEqual(expect.objectContaining({ turn: '2', retryCount: '0' }));
+  });
+
+  it('includes turn event context when actor is provided', async () => {
+    const matchId = 'match-2b';
+    await engine.startMatch(matchId, 'test-game', 123);
+
+    const result = await engine.processAction(matchId, {
+      tool: 'move',
+      request_id: 'req-context',
+      args: {},
+      actor: 'agent-1',
+    });
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      request_id: 'req-context',
+      turnEventContext: {
+        phase: 'default',
+        seat: 'first',
+        scoreDiffBefore: 0,
+        scoreDiffAfter: 1,
+        ruleVersion: '1.0.0',
+      },
+    });
   });
 
   it('should handle retryable validation error', async () => {

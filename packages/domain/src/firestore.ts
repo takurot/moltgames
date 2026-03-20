@@ -11,8 +11,10 @@ import type {
   Season,
   SeasonStatus,
   TurnEvent,
+  TurnEventSeat,
   User,
 } from './types.js';
+import { TURN_EVENT_SEATS } from './types.js';
 import { MATCH_PARTICIPANT_ROLES, REPLAY_VISIBILITIES, SEASON_STATUSES } from './types.js';
 import type { MatchStatus } from './match-status.js';
 import { isMatchStatus } from './match-status.js';
@@ -63,6 +65,7 @@ export const createValidatedFirestoreConverter = <TModel, TStored>(
 const matchParticipantRoleSet: ReadonlySet<MatchParticipantRole> = new Set(MATCH_PARTICIPANT_ROLES);
 const replayVisibilitySet: ReadonlySet<ReplayVisibility> = new Set(REPLAY_VISIBILITIES);
 const seasonStatusSet: ReadonlySet<SeasonStatus> = new Set(SEASON_STATUSES);
+const turnEventSeatSet: ReadonlySet<TurnEventSeat> = new Set(TURN_EVENT_SEATS);
 
 export interface UserDocument {
   uid: string;
@@ -104,8 +107,14 @@ export interface TurnEventDocument {
   actor: string;
   action: JsonValue;
   result: JsonValue;
-  latencyMs: number;
+  actionLatencyMs: number;
   timestamp: string;
+  actionType: string;
+  seat: string;
+  ruleVersion: string;
+  phase: string;
+  scoreDiffBefore: number;
+  scoreDiffAfter: number;
 }
 
 export interface RatingDocument {
@@ -221,9 +230,18 @@ export const isTurnEventDocument = (value: unknown): value is TurnEventDocument 
     isNonEmptyString(value.actor) &&
     isJsonValue(value.action) &&
     isJsonValue(value.result) &&
-    typeof value.latencyMs === 'number' &&
-    value.latencyMs >= 0 &&
-    isNonEmptyString(value.timestamp)
+    typeof value.actionLatencyMs === 'number' &&
+    value.actionLatencyMs >= 0 &&
+    isNonEmptyString(value.timestamp) &&
+    isNonEmptyString(value.actionType) &&
+    typeof value.seat === 'string' &&
+    turnEventSeatSet.has(value.seat as TurnEventSeat) &&
+    isNonEmptyString(value.ruleVersion) &&
+    isNonEmptyString(value.phase) &&
+    typeof value.scoreDiffBefore === 'number' &&
+    Number.isFinite(value.scoreDiffBefore) &&
+    typeof value.scoreDiffAfter === 'number' &&
+    Number.isFinite(value.scoreDiffAfter)
   );
 };
 
@@ -422,8 +440,14 @@ export const turnEventFirestoreConverter = createValidatedFirestoreConverter<
     actor: model.actor,
     action: model.action,
     result: model.result,
-    latencyMs: model.latencyMs,
+    actionLatencyMs: model.actionLatencyMs,
     timestamp: model.timestamp,
+    actionType: model.actionType,
+    seat: model.seat,
+    ruleVersion: model.ruleVersion,
+    phase: model.phase,
+    scoreDiffBefore: model.scoreDiffBefore,
+    scoreDiffAfter: model.scoreDiffAfter,
   }),
   parse: (stored) => ({
     eventId: stored.eventId,
@@ -432,8 +456,14 @@ export const turnEventFirestoreConverter = createValidatedFirestoreConverter<
     actor: stored.actor,
     action: stored.action,
     result: stored.result,
-    latencyMs: stored.latencyMs,
+    actionLatencyMs: stored.actionLatencyMs,
     timestamp: stored.timestamp,
+    actionType: stored.actionType,
+    seat: stored.seat as TurnEventSeat,
+    ruleVersion: stored.ruleVersion,
+    phase: stored.phase,
+    scoreDiffBefore: stored.scoreDiffBefore,
+    scoreDiffAfter: stored.scoreDiffAfter,
   }),
   validate: isTurnEventDocument,
 });

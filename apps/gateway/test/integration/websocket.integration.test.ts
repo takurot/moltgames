@@ -290,6 +290,7 @@ describe('Gateway WebSocket integration', () => {
       tool: 'send_message',
       request_id: 'req-1',
       args: { content: 'hello' },
+      actor: 'agent-1',
     });
 
     socket.close();
@@ -656,8 +657,15 @@ describe('Gateway WebSocket integration', () => {
         request_id: 'req-spectator',
         status: 'ok',
         result: { guessedSecret: 'SECRET-Alpha-42', verdict: 'miss' },
+        turnEventContext: {
+          phase: 'secret-guess',
+          seat: 'first',
+          scoreDiffBefore: 0,
+          scoreDiffAfter: 0,
+          ruleVersion: '1.1.0',
+        },
       })),
-      getMatchMeta: vi.fn(async () => ({ gameId: 'prompt-injection-arena' })),
+      getMatchMeta: vi.fn(async () => ({ gameId: 'prompt-injection-arena', ruleVersion: '1.1.0' })),
     };
 
     const app = await createApp({
@@ -708,14 +716,125 @@ describe('Gateway WebSocket integration', () => {
       }),
     );
 
+    const playerResponse = await playerCollector.waitFor(
+      (value): value is Record<string, unknown> =>
+        isToolCallResponse(value) &&
+        (value as Record<string, unknown>).request_id === 'req-spectator',
+    );
+    expect(playerResponse).not.toHaveProperty('turnEventContext');
+
     const event = await spectatorCollector.waitFor(isMatchEvent);
     expect(event.event.actor).toBe('agent-1');
     expect(event.event.turn).toBe(1);
     expect(event.event.action).toEqual({ tool: 'check_secret', args: { guess: '***REDACTED***' } });
     expect(event.event.result).toEqual({ guessedSecret: '***REDACTED***', verdict: 'miss' });
+    expect((event.event as Record<string, unknown>).phase).toBe('secret-guess');
+    expect((event.event as Record<string, unknown>).seat).toBe('first');
+    expect((event.event as Record<string, unknown>).ruleVersion).toBe('1.1.0');
+    expect((event.event as Record<string, unknown>).scoreDiffBefore).toBe(0);
+    expect((event.event as Record<string, unknown>).scoreDiffAfter).toBe(0);
+    expect(typeof (event.event as Record<string, unknown>).actionLatencyMs).toBe('number');
 
     spectatorSocket.close();
     playerSocket.close();
+  });
+
+  it('writes analytics fields to replay output without relying on match metadata warmup', async () => {
+    const replayRepository = new InMemoryReplayRepository();
+    const replayStorage = new InMemoryReplayStorage();
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a prompt',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-analytics-replay',
+        status: 'ok',
+        result: { accepted: true },
+        termination: {
+          ended: true,
+          winner: 'agent-1',
+          reason: 'finished',
+        },
+        turnEventContext: {
+          phase: 'dialogue',
+          seat: 'first',
+          scoreDiffBefore: 0,
+          scoreDiffAfter: 1,
+          ruleVersion: '1.1.0',
+        },
+      })),
+      getMatchMeta: vi.fn(async () => ({ gameId: 'prompt-injection-arena', ruleVersion: '1.1.0' })),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+      replayRepository,
+      replayStorage,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-replay-analytics', agentId: 'agent-1' },
+    });
+    const { connectToken } = issueTokenResponse.json<{ connectToken: string }>();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(connectToken)}`,
+      'moltgame.v1',
+    );
+    const collector = new MessageCollector(socket);
+    await waitForOpen(socket);
+    await collector.waitFor(isSessionReady);
+    await collector.waitFor(isToolsList);
+
+    socket.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-analytics-replay',
+        args: { content: 'hello' },
+      }),
+    );
+
+    await collector.waitFor(
+      (value): value is { request_id: string; status: 'ok' } =>
+        isToolCallResponse(value) &&
+        value.request_id === 'req-analytics-replay' &&
+        value.status === 'ok',
+    );
+    await collector.waitFor(isMatchEnded);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const files = replayStorage.listFiles();
+    expect(files).toHaveLength(1);
+
+    const replayJsonl = replayStorage.getFileData(files[0]);
+    const [line] = replayJsonl.trim().split('\n');
+    const parsed = JSON.parse(line) as Record<string, unknown>;
+    expect(parsed.ruleVersion).toBe('1.1.0');
+    expect(parsed.phase).toBe('dialogue');
+    expect(parsed.scoreDiffBefore).toBe(0);
+    expect(parsed.scoreDiffAfter).toBe(1);
+    expect(parsed.seat).toBe('first');
+    expect(typeof parsed.actionLatencyMs).toBe('number');
+
+    socket.close();
   });
 
   it('rejects spectator access to private matches when access controller denies', async () => {
