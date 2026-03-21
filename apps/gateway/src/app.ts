@@ -722,9 +722,9 @@ export const createApp = async (options: AppOptions = {}) => {
             request_id: request.request_id,
             status: 'error',
             error: {
-              code: 'INVALID_REQUEST',
+              code: 'NOT_YOUR_TURN',
               message: 'Tool is not available for this session',
-              retryable: false,
+              retryable: true,
             },
           };
           sendJson(socket, response, app.log);

@@ -103,6 +103,10 @@ export class RedisManager {
     return entries.map((entry) => JSON.parse(entry) as T);
   }
 
+  async ping(): Promise<void> {
+    await this.client.ping();
+  }
+
   async close(): Promise<void> {
     await this.client.quit();
   }

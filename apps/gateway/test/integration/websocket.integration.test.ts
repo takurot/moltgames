@@ -424,10 +424,10 @@ describe('Gateway WebSocket integration', () => {
         typeof (value as Record<string, unknown>).error === 'object' &&
         (value as Record<string, unknown>).error !== null &&
         ((value as Record<string, unknown>).error as Record<string, unknown>).code ===
-          'INVALID_REQUEST',
+          'NOT_YOUR_TURN',
     );
 
-    expect(blockedResponse.error.message).toContain('Tool is not available');
+    expect(blockedResponse.error.retryable).toBe(true);
     expect(engineClient.callTool).not.toHaveBeenCalled();
 
     socket.close();

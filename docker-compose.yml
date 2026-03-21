@@ -25,6 +25,7 @@ services:
       - ENGINE_URL=http://engine:8081
       - REDIS_URL=redis://redis:6379
       - CONNECT_TOKEN_SECRET=dev-secret
+      - NODE_ENV=development
       - MOCK_AUTH=true
     ports:
       - '8080:8080'

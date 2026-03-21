@@ -98,3 +98,32 @@ describe('Engine server /matches/:matchId/start', () => {
     });
   });
 });
+
+describe('Engine server /healthz', () => {
+  let fastify: FastifyInstance;
+  let close: () => Promise<void>;
+
+  beforeEach(async () => {
+    const server = await createServer();
+    fastify = server.fastify;
+    close = server.close;
+  });
+
+  afterEach(async () => {
+    await close();
+  });
+
+  it('returns 200 with status ok when Redis is reachable', async () => {
+    const response = await fastify.inject({ method: 'GET', url: '/healthz' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'ok' });
+  });
+
+  it('returns 503 when Redis ping fails', async () => {
+    const server2 = await createServer();
+    vi.spyOn(server2.redisManager, 'ping').mockRejectedValueOnce(new Error('Redis unavailable'));
+    const response = await server2.fastify.inject({ method: 'GET', url: '/healthz' });
+    expect(response.statusCode).toBe(503);
+    await server2.close();
+  });
+});

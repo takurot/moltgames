@@ -28,7 +28,7 @@
     "test:bench:agents:openai:perf": "RUN_OPENAI_BENCH=true BENCH_MODE=performance OPENAI_BENCH_MATCH_COUNT=20 vitest run test/e2e/agent-battle-bench.test.ts --testNamePattern=\"OpenAI performance bench\"",
     "test:bench:agents:openai:perf:dilemma": "BENCH_GAME_ID=dilemma-poker RUN_OPENAI_BENCH=true BENCH_MODE=performance OPENAI_BENCH_MATCH_COUNT=20 vitest run test/e2e/agent-battle-bench.test.ts --testNamePattern=\"OpenAI performance bench\"",
     "test:rules": "firebase emulators:exec --config firebase/firebase.json --only firestore \"vitest run firebase/test\"",
-    "ci": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm test:e2e && pnpm test:rules && pnpm build"
+    "ci": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm test:e2e && pnpm test:e2e:local && pnpm test:rules && pnpm build"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
