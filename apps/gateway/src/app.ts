@@ -49,6 +49,7 @@ import {
 } from './replay/storage.js';
 import { ReplayService } from './replay/service.js';
 import { applyRedaction } from './replay/redaction.js';
+import { InMemoryMatchRepository, type MatchRepository } from './match/repository.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -107,6 +108,7 @@ export interface AppOptions {
   replayRepository?: ReplayRepository;
   replayStorage?: ReplayStorage;
   spectatorAccessController?: SpectatorAccessController;
+  matchRepository?: MatchRepository;
 }
 
 export interface GatewayEngineClient {
@@ -557,6 +559,8 @@ export const createApp = async (options: AppOptions = {}) => {
   const spectatorAccessController =
     options.spectatorAccessController ?? defaultSpectatorAccessController;
 
+  const matchRepository: MatchRepository = options.matchRepository ?? new InMemoryMatchRepository();
+
   // Per-match TurnEvent accumulator (in-memory, cleared after replay generation)
   const matchEvents = new Map<string, TurnEvent[]>();
   const matchTurnCounters = new Map<string, number>();
@@ -583,6 +587,14 @@ export const createApp = async (options: AppOptions = {}) => {
       sessionIdByMatchAgent.delete(toSessionLookupKey(session.matchId, session.agentId));
       session.forfeitTimer = null;
       session.reconnectDeadlineAtMs = null;
+
+      // Transition match status to ABORTED (Issue #38)
+      matchRepository.updateStatus(session.matchId, 'ABORTED').catch((err: unknown) => {
+        app.log.warn(
+          { error: err, matchId: session.matchId },
+          'Failed to update match status to ABORTED',
+        );
+      });
     }, reconnectGraceMs);
   };
 
@@ -629,6 +641,55 @@ export const createApp = async (options: AppOptions = {}) => {
 
     matchGameIds.set(matchId, meta.gameId);
     return meta.gameId;
+  };
+
+  const region = process.env.REGION || 'us-central1';
+
+  const updateMatchOnConnect = async (session: AgentSession): Promise<void> => {
+    const { matchId, uid, agentId } = session;
+
+    const existing = await matchRepository.get(matchId);
+    const newParticipant = { uid, agentId, role: 'PLAYER' as const };
+
+    if (existing === null) {
+      // First agent connecting — create the match record
+      const meta = await engineClient.getMatchMeta(matchId);
+      const gameId = meta?.gameId ?? 'unknown';
+      const ruleVersion = meta?.ruleVersion ?? 'unknown';
+      await matchRepository.save({
+        matchId,
+        gameId,
+        status: 'WAITING_AGENT_CONNECT',
+        participants: [newParticipant],
+        ruleId: gameId,
+        ruleVersion,
+        region,
+      });
+      return;
+    }
+
+    // Add participant if not already present
+    const alreadyListed = existing.participants.some((p) => p.agentId === agentId);
+    const participants = alreadyListed
+      ? existing.participants
+      : [...existing.participants, newParticipant];
+
+    const connectedCount = Array.from(sessionsById.values()).filter(
+      (s) => s.matchId === matchId,
+    ).length;
+
+    if (connectedCount >= 2) {
+      // Both agents connected — transition to IN_PROGRESS
+      await matchRepository.save({
+        ...existing,
+        participants,
+        status: 'IN_PROGRESS',
+        startedAt: new Date().toISOString(),
+      });
+    } else {
+      // Still waiting for the second agent
+      await matchRepository.save({ ...existing, participants });
+    }
   };
 
   const broadcastToSpectators = (matchId: string, payload: unknown): void => {
@@ -853,6 +914,17 @@ export const createApp = async (options: AppOptions = {}) => {
           // Mark match as ended to block subsequent tool calls (Issue #41)
           endedMatchIds.add(session.matchId);
 
+          // Transition match status to FINISHED (Issue #38)
+          const finishedAt = endedAt;
+          matchRepository
+            .updateStatus(session.matchId, 'FINISHED', { endedAt: finishedAt })
+            .catch((err: unknown) => {
+              app.log.warn(
+                { error: err, matchId: session.matchId },
+                'Failed to update match status to FINISHED',
+              );
+            });
+
           const endedPayload = {
             type: 'match/ended',
             winner: termination.winner,
@@ -1004,6 +1076,16 @@ export const createApp = async (options: AppOptions = {}) => {
       return { status: 'ok', leaderboard };
     },
   );
+
+  app.get<{ Params: { matchId: string } }>('/v1/matches/:matchId', async (request, reply) => {
+    const { matchId } = request.params;
+    const match = await matchRepository.get(matchId);
+    if (match === null) {
+      reply.status(404).send({ status: 'error', message: 'Match not found' });
+      return;
+    }
+    return { status: 'ok', match };
+  });
 
   app.get<{ Params: { matchId: string } }>('/v1/replays/:matchId', async (request, reply) => {
     const { matchId } = request.params;
@@ -1184,6 +1266,14 @@ export const createApp = async (options: AppOptions = {}) => {
 
       sessionsById.set(session.id, session);
       sessionIdByMatchAgent.set(sessionKey, session.id);
+
+      // Update match status in repository
+      void updateMatchOnConnect(session).catch((err: unknown) => {
+        app.log.warn(
+          { error: err, matchId: session.matchId },
+          'Failed to update match status on agent connect',
+        );
+      });
 
       app.log.info(
         { sessionId: session.id, matchId: session.matchId, agentId: session.agentId },
