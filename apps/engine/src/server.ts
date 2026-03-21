@@ -301,8 +301,17 @@ export const createServer = async (options: CreateServerOptions = {}) => {
     },
   );
 
-  fastify.get('/healthz', async () => {
-    return { status: 'ok' };
+  fastify.get('/healthz', async (_request, reply) => {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Redis ping timeout')), 1000),
+      );
+      await Promise.race([redisManager.ping(), timeoutPromise]);
+      return { status: 'ok' };
+    } catch {
+      reply.status(503);
+      return { status: 'error', message: 'Redis unavailable' };
+    }
   });
 
   const close = async () => {

@@ -352,6 +352,131 @@ describe('Gateway WebSocket integration', () => {
     secondSocket.close();
   });
 
+  it('accepts the next player action immediately after a turn change', async () => {
+    let currentTurnAgentId = 'agent-1';
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async (_matchId, agentId) => {
+        if (agentId !== currentTurnAgentId) {
+          return [];
+        }
+
+        return [
+          {
+            name: agentId === 'agent-1' ? 'send_message' : 'respond',
+            description: 'Turn-specific action',
+            version: '1.0.0',
+            inputSchema: { type: 'object' },
+          },
+        ];
+      }),
+      callTool: vi.fn(async (_matchId, request) => {
+        currentTurnAgentId = request.actor === 'agent-1' ? 'agent-2' : 'agent-1';
+        return {
+          request_id: request.request_id,
+          status: 'ok',
+          result: { accepted: true },
+        };
+      }),
+      getMatchMeta: vi.fn(async () => null),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueAgent1TokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-turn-handoff', agentId: 'agent-1' },
+    });
+    const issueAgent2TokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-turn-handoff', agentId: 'agent-2' },
+    });
+    const { connectToken: agent1Token } = issueAgent1TokenResponse.json();
+    const { connectToken: agent2Token } = issueAgent2TokenResponse.json();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const agent1 = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(agent1Token)}`,
+      'moltgame.v1',
+    );
+    const agent2 = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(agent2Token)}`,
+      'moltgame.v1',
+    );
+    const agent1Collector = new MessageCollector(agent1);
+    const agent2Collector = new MessageCollector(agent2);
+
+    await Promise.all([waitForOpen(agent1), waitForOpen(agent2)]);
+    await Promise.all([
+      agent1Collector.waitFor(isSessionReady),
+      agent2Collector.waitFor(isSessionReady),
+      agent1Collector.waitFor(isToolsList),
+      agent2Collector.waitFor(isToolsList),
+    ]);
+
+    agent1.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-first',
+        args: { content: 'handoff' },
+      }),
+    );
+    const firstResponse = await agent1Collector.waitFor(
+      (
+        value,
+      ): value is {
+        request_id: string;
+        status: 'ok' | 'error';
+      } =>
+        typeof value === 'object' &&
+        value !== null &&
+        (value as Record<string, unknown>).request_id === 'req-first' &&
+        ((value as Record<string, unknown>).status === 'ok' ||
+          (value as Record<string, unknown>).status === 'error'),
+    );
+    expect(firstResponse.status).toBe('ok');
+
+    agent2.send(
+      JSON.stringify({
+        tool: 'respond',
+        request_id: 'req-second',
+        args: { content: 'ready immediately after handoff' },
+      }),
+    );
+    const secondResponse = await agent2Collector.waitFor(
+      (
+        value,
+      ): value is {
+        request_id: string;
+        status: 'ok' | 'error';
+      } =>
+        typeof value === 'object' &&
+        value !== null &&
+        (value as Record<string, unknown>).request_id === 'req-second' &&
+        ((value as Record<string, unknown>).status === 'ok' ||
+          (value as Record<string, unknown>).status === 'error'),
+    );
+    expect(secondResponse.status).toBe('ok');
+    expect(engineClient.callTool).toHaveBeenCalledTimes(2);
+
+    agent1.close();
+    agent2.close();
+  });
+
   it('rejects tool calls that are not in the current session tool list', async () => {
     const engineClient: GatewayEngineClient = {
       getTools: vi.fn(async () => [
@@ -424,10 +549,10 @@ describe('Gateway WebSocket integration', () => {
         typeof (value as Record<string, unknown>).error === 'object' &&
         (value as Record<string, unknown>).error !== null &&
         ((value as Record<string, unknown>).error as Record<string, unknown>).code ===
-          'INVALID_REQUEST',
+          'NOT_YOUR_TURN',
     );
 
-    expect(blockedResponse.error.message).toContain('Tool is not available');
+    expect(blockedResponse.error.retryable).toBe(true);
     expect(engineClient.callTool).not.toHaveBeenCalled();
 
     socket.close();
