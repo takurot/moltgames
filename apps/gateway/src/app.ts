@@ -716,7 +716,12 @@ export const createApp = async (options: AppOptions = {}) => {
           return;
         }
 
-        const isToolAvailable = session.tools.some((tool) => tool.name === request.tool);
+        let isToolAvailable = session.tools.some((tool) => tool.name === request.tool);
+        if (!isToolAvailable) {
+          // Refresh once before rejecting to avoid stale tool caches immediately after turn changes.
+          await refreshToolsAndNotify(session);
+          isToolAvailable = session.tools.some((tool) => tool.name === request.tool);
+        }
         if (!isToolAvailable) {
           const response: ToolCallResponse = {
             request_id: request.request_id,
