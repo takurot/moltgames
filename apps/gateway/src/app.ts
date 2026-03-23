@@ -49,7 +49,11 @@ import {
 } from './replay/storage.js';
 import { ReplayService } from './replay/service.js';
 import { applyRedaction } from './replay/redaction.js';
-import { InMemoryMatchRepository, type MatchRepository } from './match/repository.js';
+import {
+  FirestoreMatchRepository,
+  InMemoryMatchRepository,
+  type MatchRepository,
+} from './match/repository.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -559,7 +563,9 @@ export const createApp = async (options: AppOptions = {}) => {
   const spectatorAccessController =
     options.spectatorAccessController ?? defaultSpectatorAccessController;
 
-  const matchRepository: MatchRepository = options.matchRepository ?? new InMemoryMatchRepository();
+  const matchRepository: MatchRepository =
+    options.matchRepository ??
+    (isTestOrNoFirebase ? new InMemoryMatchRepository() : new FirestoreMatchRepository());
 
   // Per-match TurnEvent accumulator (in-memory, cleared after replay generation)
   const matchEvents = new Map<string, TurnEvent[]>();
@@ -643,7 +649,7 @@ export const createApp = async (options: AppOptions = {}) => {
     return meta.gameId;
   };
 
-  const region = process.env.REGION || 'us-central1';
+  const region = process.env.REGION ?? 'us-central1';
 
   const updateMatchOnConnect = async (session: AgentSession): Promise<void> => {
     const { matchId, uid, agentId } = session;
@@ -915,9 +921,8 @@ export const createApp = async (options: AppOptions = {}) => {
           endedMatchIds.add(session.matchId);
 
           // Transition match status to FINISHED (Issue #38)
-          const finishedAt = endedAt;
           matchRepository
-            .updateStatus(session.matchId, 'FINISHED', { endedAt: finishedAt })
+            .updateStatus(session.matchId, 'FINISHED', { endedAt })
             .catch((err: unknown) => {
               app.log.warn(
                 { error: err, matchId: session.matchId },

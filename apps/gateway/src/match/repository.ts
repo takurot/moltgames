@@ -1,4 +1,4 @@
-import type { Firestore } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 
 import { matchFirestoreConverter, type Match, type MatchStatus } from '@moltgames/domain';
 
@@ -37,23 +37,18 @@ export class InMemoryMatchRepository implements MatchRepository {
 }
 
 export class FirestoreMatchRepository implements MatchRepository {
-  private readonly firestore: Firestore;
-
-  constructor(firestore: Firestore) {
-    this.firestore = firestore;
+  private get db() {
+    return getFirestore();
   }
 
   async get(matchId: string): Promise<Match | null> {
-    const ref = this.firestore
-      .collection('matches')
-      .doc(matchId)
-      .withConverter(matchFirestoreConverter);
+    const ref = this.db.collection('matches').doc(matchId).withConverter(matchFirestoreConverter);
     const snap = await ref.get();
     return snap.exists ? (snap.data() ?? null) : null;
   }
 
   async save(match: Match): Promise<void> {
-    const ref = this.firestore
+    const ref = this.db
       .collection('matches')
       .doc(match.matchId)
       .withConverter(matchFirestoreConverter);
@@ -65,8 +60,7 @@ export class FirestoreMatchRepository implements MatchRepository {
     status: MatchStatus,
     updates?: Partial<Pick<Match, 'startedAt' | 'endedAt'>>,
   ): Promise<void> {
-    const ref = this.firestore.collection('matches').doc(matchId);
-    const payload: Record<string, unknown> = { status, ...updates };
-    await ref.update(payload);
+    const ref = this.db.collection('matches').doc(matchId).withConverter(matchFirestoreConverter);
+    await ref.set({ status, ...updates } as Match, { merge: true });
   }
 }
