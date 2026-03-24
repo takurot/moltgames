@@ -408,7 +408,7 @@ echo "==> [10/12] コードレビュー (Codex)"
 
 REVIEW_FILE="review-${PR_NUMBER}.md"
 
-codex "
+codex --yolo "
 Review the pull request diff.
 Run: gh pr diff $PR_NUMBER
 
