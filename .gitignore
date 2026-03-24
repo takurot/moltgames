@@ -18,5 +18,8 @@ terraform.tfvars.json
 docs/BP_ANTHROPIC.md
 docs/BP_OPENAI.md
 
+# Claude Code local settings (machine-specific, not shared)
+.claude/settings.local.json
+
 # Local runtime logs
 logs/
