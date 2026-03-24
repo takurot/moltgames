@@ -412,6 +412,17 @@ codex --yolo "
 Review the pull request diff.
 Run: gh pr diff $PR_NUMBER
 
+## Context
+
+### Task
+$TASK
+
+### Research findings and known constraints (from $NOTES_FILE)
+$(cat "$NOTES_FILE" 2>/dev/null || echo "none")
+
+### Plan reference ($PLAN)
+$(cat "$PLAN" 2>/dev/null | head -100)
+
 Review checklist:
 
 [SECURITY - CRITICAL]
