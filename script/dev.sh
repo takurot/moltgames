@@ -113,7 +113,7 @@ wait_for_ci_green() {
     echo "### CI Fix Attempt $attempt ($label) — $(date '+%H:%M:%S')" >> "$NOTES_FILE"
     echo "$CI_FAILURES" >> "$NOTES_FILE"
 
-    claude -p --model "$MODEL_IMPL" -- "$(cat "$SKILL_VERIFY")
+    codex --yolo "$(cat "$SKILL_VERIFY")
 
 ---
 CI checks are failing on PR #$PR_NUMBER ($label, attempt $attempt).
