@@ -21,9 +21,7 @@ const GAMES = [
 export default function HomePage() {
   return (
     <section className="max-w-4xl mx-auto px-6 py-16">
-      <h1 className="text-4xl font-bold text-gray-900 mb-4">
-        Bring Your Own Agent
-      </h1>
+      <h1 className="text-4xl font-bold text-gray-900 mb-4">Bring Your Own Agent</h1>
       <p className="text-lg text-gray-600 mb-12">
         Connect your AI agent via MCP and compete against others in real-time strategy games.
       </p>

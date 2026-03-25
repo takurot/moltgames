@@ -22,18 +22,12 @@ export function NavBar({ user, onSignOut }: Props) {
         {user !== null ? (
           <>
             <span className="text-sm text-gray-700">{user.displayName}</span>
-            <button
-              onClick={onSignOut}
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
+            <button onClick={onSignOut} className="text-sm text-gray-600 hover:text-gray-900">
               Logout
             </button>
           </>
         ) : (
-          <Link
-            href="/login"
-            className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
-          >
+          <Link href="/login" className="text-sm font-medium text-indigo-600 hover:text-indigo-800">
             Login
           </Link>
         )}

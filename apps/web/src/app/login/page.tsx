@@ -27,9 +27,7 @@ export default function LoginPage() {
       // Do not expose raw error messages (they may contain internal details).
       // Firebase Auth error codes are safe to surface; the message fallback is generic.
       const code =
-        err instanceof Error && 'code' in err
-          ? String((err as { code: unknown }).code)
-          : null;
+        err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : null;
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         // User dismissed the popup intentionally — no error needed.
         return;

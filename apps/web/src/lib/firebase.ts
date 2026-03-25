@@ -23,15 +23,21 @@ export function getFirebaseAuth(): Auth {
   const firebaseApp = getFirebaseApp();
   _auth = getAuth(firebaseApp);
   if (process.env['NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST'] !== undefined) {
-    connectAuthEmulator(
-      _auth,
-      `http://${process.env['NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST']}`,
-      { disableWarnings: true }
-    );
+    connectAuthEmulator(_auth, `http://${process.env['NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST']}`, {
+      disableWarnings: true,
+    });
   }
   return _auth;
 }
 
 // Named exports for tests that mock this module
-export const app = { get instance() { return getFirebaseApp(); } };
-export const auth = { get instance() { return getFirebaseAuth(); } };
+export const app = {
+  get instance() {
+    return getFirebaseApp();
+  },
+};
+export const auth = {
+  get instance() {
+    return getFirebaseAuth();
+  },
+};

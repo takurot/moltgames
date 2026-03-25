@@ -65,7 +65,7 @@ describe('AuthProvider', () => {
     render(
       <AuthProvider>
         <TestConsumer />
-      </AuthProvider>
+      </AuthProvider>,
     );
 
     expect(screen.getByText('Loading...')).toBeInTheDocument();
@@ -73,18 +73,16 @@ describe('AuthProvider', () => {
 
   it('provides null user when not authenticated', async () => {
     const { AuthProvider, useAuth, firebaseAuth } = await getModules();
-    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation(
-      (_auth, callback) => {
-        (callback as (u: null) => void)(null);
-        return () => {};
-      }
-    );
+    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation((_auth, callback) => {
+      (callback as (u: null) => void)(null);
+      return () => {};
+    });
     const TestConsumer = makeConsumer(useAuth);
 
     render(
       <AuthProvider>
         <TestConsumer />
-      </AuthProvider>
+      </AuthProvider>,
     );
 
     await waitFor(() => {
@@ -95,18 +93,16 @@ describe('AuthProvider', () => {
   it('provides user when authenticated', async () => {
     const { AuthProvider, useAuth, firebaseAuth } = await getModules();
     const mockUser = { uid: 'test-uid', displayName: 'Test User' };
-    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation(
-      (_auth, callback) => {
-        (callback as (u: typeof mockUser) => void)(mockUser);
-        return () => {};
-      }
-    );
+    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation((_auth, callback) => {
+      (callback as (u: typeof mockUser) => void)(mockUser);
+      return () => {};
+    });
     const TestConsumer = makeConsumer(useAuth);
 
     render(
       <AuthProvider>
         <TestConsumer />
-      </AuthProvider>
+      </AuthProvider>,
     );
 
     await waitFor(() => {
@@ -116,19 +112,17 @@ describe('AuthProvider', () => {
 
   it('calls signInWithPopup with GoogleAuthProvider on signInWithGoogle', async () => {
     const { AuthProvider, useAuth, firebaseAuth } = await getModules();
-    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation(
-      (_auth, callback) => {
-        (callback as (u: null) => void)(null);
-        return () => {};
-      }
-    );
+    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation((_auth, callback) => {
+      (callback as (u: null) => void)(null);
+      return () => {};
+    });
     vi.mocked(firebaseAuth.signInWithPopup).mockResolvedValue({} as never);
     const TestConsumer = makeConsumer(useAuth);
 
     render(
       <AuthProvider>
         <TestConsumer />
-      </AuthProvider>
+      </AuthProvider>,
     );
 
     await waitFor(() => screen.getByText('Sign In Google'));
@@ -140,19 +134,17 @@ describe('AuthProvider', () => {
 
   it('calls signInWithPopup with GithubAuthProvider on signInWithGithub', async () => {
     const { AuthProvider, useAuth, firebaseAuth } = await getModules();
-    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation(
-      (_auth, callback) => {
-        (callback as (u: null) => void)(null);
-        return () => {};
-      }
-    );
+    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation((_auth, callback) => {
+      (callback as (u: null) => void)(null);
+      return () => {};
+    });
     vi.mocked(firebaseAuth.signInWithPopup).mockResolvedValue({} as never);
     const TestConsumer = makeConsumer(useAuth);
 
     render(
       <AuthProvider>
         <TestConsumer />
-      </AuthProvider>
+      </AuthProvider>,
     );
 
     await waitFor(() => screen.getByText('Sign In Github'));
@@ -165,19 +157,17 @@ describe('AuthProvider', () => {
   it('calls firebase signOut on sign out', async () => {
     const { AuthProvider, useAuth, firebaseAuth } = await getModules();
     const mockUser = { uid: 'test-uid', displayName: 'Test' };
-    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation(
-      (_auth, callback) => {
-        (callback as (u: typeof mockUser) => void)(mockUser);
-        return () => {};
-      }
-    );
+    vi.mocked(firebaseAuth.onAuthStateChanged).mockImplementation((_auth, callback) => {
+      (callback as (u: typeof mockUser) => void)(mockUser);
+      return () => {};
+    });
     vi.mocked(firebaseAuth.signOut).mockResolvedValue(undefined as never);
     const TestConsumer = makeConsumer(useAuth);
 
     render(
       <AuthProvider>
         <TestConsumer />
-      </AuthProvider>
+      </AuthProvider>,
     );
 
     await waitFor(() => screen.getByText('Sign Out'));
