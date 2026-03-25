@@ -1,16 +1,47 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "ES2022"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@moltgames/domain": ["../../packages/domain/src/index"],
-      "@moltgames/mcp-protocol": ["../../packages/mcp-protocol/src/index"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@moltgames/domain": [
+        "../../packages/domain/src/index.ts"
+      ]
     },
-    "rootDir": "src",
-    "outDir": "dist"
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "allowJs": true,
+    "noEmit": true,
+    "isolatedModules": true
   },
-  "references": [{ "path": "../../packages/domain" }, { "path": "../../packages/mcp-protocol" }],
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "test"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

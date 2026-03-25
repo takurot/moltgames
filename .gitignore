@@ -20,3 +20,7 @@ docs/BP_OPENAI.md
 
 # Local runtime logs
 logs/
+
+# Next.js build output
+.next/
+out/
