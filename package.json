@@ -13,7 +13,7 @@
     "format:check": "prettier --check .",
     "typecheck": "turbo run typecheck",
     "test": "pnpm test:unit",
-    "test:unit": "turbo run test:unit",
+    "test:unit": "turbo run test:unit && node --test test/unit/review-prompt.test.mjs",
     "test:integration": "turbo run test:integration",
     "test:e2e": "turbo run test:e2e",
     "test:e2e:local": "vitest run test/e2e",
