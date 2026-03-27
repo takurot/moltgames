@@ -1029,10 +1029,15 @@ export const createApp = async (options: AppOptions = {}) => {
               );
             });
 
-          const persistedMatch = await matchRepository.get(session.matchId).catch((error: unknown) => {
-            app.log.warn({ error, matchId: session.matchId }, 'Failed to load match after finish');
-            return null;
-          });
+          const persistedMatch = await matchRepository
+            .get(session.matchId)
+            .catch((error: unknown) => {
+              app.log.warn(
+                { error, matchId: session.matchId },
+                'Failed to load match after finish',
+              );
+              return null;
+            });
           if (persistedMatch !== null) {
             notifyMatchEnded(
               {

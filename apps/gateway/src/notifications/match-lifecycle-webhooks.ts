@@ -33,9 +33,7 @@ export interface MatchLifecycleWebhookSubscriptionRepository {
   ): Promise<MatchLifecycleWebhookSubscription[]>;
 }
 
-export class InMemoryMatchLifecycleWebhookSubscriptionRepository
-  implements MatchLifecycleWebhookSubscriptionRepository
-{
+export class InMemoryMatchLifecycleWebhookSubscriptionRepository implements MatchLifecycleWebhookSubscriptionRepository {
   constructor(private readonly subscriptions: MatchLifecycleWebhookSubscription[] = []) {}
 
   async listSubscriptions(
@@ -66,9 +64,7 @@ const isMatchLifecycleEventType = (value: unknown): value is MatchLifecycleEvent
 const isStoredWebhookSubscription = (value: unknown): value is StoredWebhookSubscription =>
   typeof value === 'object' && value !== null;
 
-export class FirestoreMatchLifecycleWebhookSubscriptionRepository
-  implements MatchLifecycleWebhookSubscriptionRepository
-{
+export class FirestoreMatchLifecycleWebhookSubscriptionRepository implements MatchLifecycleWebhookSubscriptionRepository {
   private get db() {
     return getFirestore();
   }
@@ -146,9 +142,7 @@ export interface MatchLifecycleWebhookSubscriptionDelivery {
   ): Promise<MatchLifecycleWebhookDeliveryResponse>;
 }
 
-export class FetchMatchLifecycleWebhookDelivery
-  implements MatchLifecycleWebhookSubscriptionDelivery
-{
+export class FetchMatchLifecycleWebhookDelivery implements MatchLifecycleWebhookSubscriptionDelivery {
   async send(
     request: MatchLifecycleWebhookDeliveryRequest,
   ): Promise<MatchLifecycleWebhookDeliveryResponse> {
@@ -311,8 +305,5 @@ export class MatchLifecycleWebhookService implements MatchLifecycleNotifier {
 export class NoopMatchLifecycleNotifier implements MatchLifecycleNotifier {
   async notifyMatchStarted(_match: Match): Promise<void> {}
 
-  async notifyMatchEnded(
-    _match: Match,
-    _outcome: MatchLifecycleWebhookOutcome,
-  ): Promise<void> {}
+  async notifyMatchEnded(_match: Match, _outcome: MatchLifecycleWebhookOutcome): Promise<void> {}
 }
