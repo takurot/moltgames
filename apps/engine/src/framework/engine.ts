@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Action, GamePlugin, TerminationResult, TurnEventAnalytics } from './types.js';
 import type { RedisManager } from '../state/redis-manager.js';
 import type { RuleRegistry } from '../rules/registry.js';
+import type { LoadedGameRule } from '@moltgames/rules';
 import {
   isCommonErrorCode,
   isJsonValue,
@@ -46,6 +47,15 @@ type ProcessActionErrorResponse = {
 };
 
 type ProcessActionResponse = ProcessActionOkResponse | ProcessActionErrorResponse;
+
+export interface RoleAssignments {
+  attackerId: string;
+  defenderId: string;
+}
+
+export interface StartMatchOptions {
+  roleAssignments?: RoleAssignments;
+}
 
 const parsePositiveInt = (value: string | undefined): number | null => {
   if (value === undefined) {
@@ -133,7 +143,12 @@ export class Engine {
     this.plugins.set(plugin.gameId, plugin);
   }
 
-  async startMatch(matchId: string, gameId: string, seed: number): Promise<void> {
+  async startMatch(
+    matchId: string,
+    gameId: string,
+    seed: number,
+    options: StartMatchOptions = {},
+  ): Promise<void> {
     const plugin = this.plugins.get(gameId);
     if (!plugin) {
       throw new Error(`Game plugin not found: ${gameId}`);
@@ -143,7 +158,10 @@ export class Engine {
       ? await this.ruleRegistry.getActiveRuleDefinition(gameId)
       : null;
 
-    const state = plugin.initialize(seed, activeRule ?? undefined);
+    const state = plugin.initialize(
+      seed,
+      this.buildInitializationRule(plugin, gameId, activeRule ?? undefined, options),
+    );
     const turn = plugin.getTurn(state);
     const turnTimeoutSeconds =
       activeRule?.turnTimeoutSeconds ?? this.getTurnTimeoutSeconds(null, plugin);
@@ -166,6 +184,40 @@ export class Engine {
       turnTimeoutSec: turnTimeoutSeconds.toString(),
       turnStartedAtMs,
     });
+  }
+
+  private buildInitializationRule(
+    plugin: GamePlugin,
+    gameId: string,
+    activeRule: LoadedGameRule | undefined,
+    options: StartMatchOptions,
+  ): LoadedGameRule | undefined {
+    if (activeRule === undefined && options.roleAssignments === undefined) {
+      return undefined;
+    }
+
+    const parameters = {
+      ...(activeRule?.parameters ?? {}),
+      ...(options.roleAssignments === undefined ? {} : { roleAssignments: options.roleAssignments }),
+    } as LoadedGameRule['parameters'];
+
+    if (activeRule !== undefined) {
+      return {
+        ...activeRule,
+        parameters,
+      };
+    }
+
+    return {
+      gameId,
+      ruleId: 'dynamic-start',
+      ruleVersion: plugin.ruleVersion,
+      turnLimit: 1,
+      tools: [],
+      parameters: parameters as LoadedGameRule['parameters'],
+      termination: {},
+      redactionPolicy: {},
+    };
   }
 
   async getAvailableTools(

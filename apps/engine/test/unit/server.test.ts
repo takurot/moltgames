@@ -70,6 +70,52 @@ describe('Engine server /matches/:matchId/start', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 
+  it('accepts custom role assignments for prompt-injection-arena start request', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-3/start',
+      payload: {
+        gameId: 'prompt-injection-arena',
+        seed: 1,
+        attackerId: 'alpha-agent',
+        defenderId: 'beta-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'ok' });
+
+    const attackerToolsResponse = await fastify.inject({
+      method: 'GET',
+      url: '/matches/match-3/tools',
+      query: { agentId: 'alpha-agent' },
+    });
+
+    expect(attackerToolsResponse.statusCode).toBe(200);
+    expect(attackerToolsResponse.json()).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'send_message' }),
+        ]),
+      }),
+    );
+
+    const defenderToolsResponse = await fastify.inject({
+      method: 'GET',
+      url: '/matches/match-3/tools',
+      query: { agentId: 'beta-agent' },
+    });
+
+    expect(defenderToolsResponse.statusCode).toBe(200);
+    expect(defenderToolsResponse.json()).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+        tools: [],
+      }),
+    );
+  });
+
   it('returns available tools for an active match', async () => {
     const startResponse = await fastify.inject({
       method: 'POST',

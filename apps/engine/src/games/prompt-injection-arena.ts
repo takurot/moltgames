@@ -11,6 +11,8 @@ import type { JsonValue } from '@moltgames/domain';
 import type { LoadedGameRule } from '@moltgames/rules';
 
 const DEFAULT_REDACTION_PLACEHOLDER = '***REDACTED***';
+const DEFAULT_ATTACKER_ID = 'agent-1';
+const DEFAULT_DEFENDER_ID = 'agent-2';
 
 const DEFAULT_RULE: LoadedGameRule = {
   gameId: 'prompt-injection-arena',
@@ -93,6 +95,30 @@ const getStringParameter = (
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const getRoleAssignmentId = (
+  source: Record<string, unknown>,
+  key: 'attackerId' | 'defenderId',
+  fallback: string,
+): string => {
+  const directValue = source[key];
+  if (typeof directValue === 'string' && directValue.length > 0) {
+    return directValue;
+  }
+
+  const nestedAssignments = source.roleAssignments;
+  if (isRecord(nestedAssignments)) {
+    const nestedValue = nestedAssignments[key];
+    if (typeof nestedValue === 'string' && nestedValue.length > 0) {
+      return nestedValue;
+    }
+  }
+
+  return fallback;
+};
+
 const pickTools = (
   tools: readonly MCPToolDefinition[],
   names: readonly string[],
@@ -129,14 +155,31 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
   initialize(seed: number, rule: LoadedGameRule = DEFAULT_RULE): PromptInjectionArenaState {
     // Deterministic random for secret generation based on seed
     const secret = this.generateSecret(seed);
-    const parameters = rule.parameters as Record<string, unknown>;
-    const termination = rule.termination as Record<string, unknown>;
-    const redactionPolicy = rule.redactionPolicy as Record<string, unknown>;
+    const mergedRule: LoadedGameRule = {
+      ...DEFAULT_RULE,
+      ...rule,
+      tools: rule.tools.length > 0 ? [...rule.tools] : [...DEFAULT_RULE.tools],
+      parameters: {
+        ...(DEFAULT_RULE.parameters as Record<string, unknown>),
+        ...(rule.parameters as Record<string, unknown>),
+      },
+      termination: {
+        ...(DEFAULT_RULE.termination as Record<string, unknown>),
+        ...(rule.termination as Record<string, unknown>),
+      },
+      redactionPolicy: {
+        ...(DEFAULT_RULE.redactionPolicy as Record<string, unknown>),
+        ...(rule.redactionPolicy as Record<string, unknown>),
+      },
+    };
+    const parameters = mergedRule.parameters as Record<string, unknown>;
+    const termination = mergedRule.termination as Record<string, unknown>;
+    const redactionPolicy = mergedRule.redactionPolicy as Record<string, unknown>;
 
     return {
-      ruleId: rule.ruleId,
-      ruleVersion: rule.ruleVersion,
-      toolDefinitions: [...rule.tools],
+      ruleId: mergedRule.ruleId,
+      ruleVersion: mergedRule.ruleVersion,
+      toolDefinitions: [...mergedRule.tools],
       redactionPlaceholder: getStringParameter(
         redactionPolicy,
         'placeholder',
@@ -150,10 +193,10 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
         'Secret guess limit reached',
       ),
       secret,
-      attackerId: 'agent-1', // Fixed for MVP, will be dynamic later
-      defenderId: 'agent-2',
+      attackerId: getRoleAssignmentId(parameters, 'attackerId', DEFAULT_ATTACKER_ID),
+      defenderId: getRoleAssignmentId(parameters, 'defenderId', DEFAULT_DEFENDER_ID),
       turn: 1,
-      maxTurns: rule.turnLimit,
+      maxTurns: mergedRule.turnLimit,
       minimumDialogueRoundsForSecretGuess: getNumberParameter(
         parameters,
         'minimumDialogueRoundsForSecretGuess',

@@ -34,7 +34,10 @@ export const createServer = async (options: CreateServerOptions = {}) => {
   engine.registerPlugin(new VectorGridWars());
   engine.registerPlugin(new DilemmaPoker());
 
-  fastify.post<{ Params: { matchId: string }; Body: { gameId: string; seed: number } }>(
+  fastify.post<{
+    Params: { matchId: string };
+    Body: { gameId: string; seed: number; attackerId?: string; defenderId?: string };
+  }>(
     '/matches/:matchId/start',
     {
       schema: {
@@ -53,16 +56,30 @@ export const createServer = async (options: CreateServerOptions = {}) => {
           properties: {
             gameId: { type: 'string', minLength: 1 },
             seed: { type: 'integer' },
+            attackerId: { type: 'string', minLength: 1 },
+            defenderId: { type: 'string', minLength: 1 },
           },
         },
       },
     },
     async (request, reply) => {
       const { matchId } = request.params;
-      const { gameId, seed } = request.body;
+      const { gameId, seed, attackerId, defenderId } = request.body;
 
       try {
-        await engine.startMatch(matchId, gameId, seed);
+        const roleAssignments =
+          typeof attackerId === 'string' &&
+          attackerId.length > 0 &&
+          typeof defenderId === 'string' &&
+          defenderId.length > 0
+            ? { attackerId, defenderId }
+            : undefined;
+
+        if (roleAssignments === undefined) {
+          await engine.startMatch(matchId, gameId, seed);
+        } else {
+          await engine.startMatch(matchId, gameId, seed, { roleAssignments });
+        }
         return { status: 'ok' };
       } catch (error: unknown) {
         request.log.error(error);

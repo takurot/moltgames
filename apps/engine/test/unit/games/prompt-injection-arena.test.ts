@@ -13,6 +13,29 @@ describe('PromptInjectionArena', () => {
     expect(state.defenderId).toBe('agent-2');
   });
 
+  it('initializes with custom role assignments from rule parameters', () => {
+    const state = plugin.initialize(12345, {
+      gameId: 'prompt-injection-arena',
+      ruleId: 'custom',
+      ruleVersion: '1.1.0',
+      turnLimit: 10,
+      tools: [],
+      parameters: {
+        minimumDialogueRoundsForSecretGuess: 2,
+        maxSecretGuessAttempts: 1,
+        roleAssignments: {
+          attackerId: 'alpha-agent',
+          defenderId: 'beta-agent',
+        },
+      },
+      termination: {},
+      redactionPolicy: {},
+    });
+
+    expect(state.attackerId).toBe('alpha-agent');
+    expect(state.defenderId).toBe('beta-agent');
+  });
+
   it('allows attacker to send message', () => {
     const state = plugin.initialize(12345);
     const action = {

@@ -123,6 +123,34 @@ class RuleAwareGamePlugin extends MockGamePlugin {
   }
 }
 
+class RoleAwareGamePlugin extends MockGamePlugin {
+  gameId = 'role-aware-game';
+  ruleVersion = '0.0.2';
+
+  initialize(seed: number, rule?: { parameters?: Record<string, unknown> }) {
+    const roleAssignments = rule?.parameters?.roleAssignments;
+    const attackerId =
+      typeof roleAssignments === 'object' &&
+      roleAssignments !== null &&
+      typeof (roleAssignments as Record<string, unknown>).attackerId === 'string'
+        ? ((roleAssignments as Record<string, unknown>).attackerId as string)
+        : 'agent-1';
+    const defenderId =
+      typeof roleAssignments === 'object' &&
+      roleAssignments !== null &&
+      typeof (roleAssignments as Record<string, unknown>).defenderId === 'string'
+        ? ((roleAssignments as Record<string, unknown>).defenderId as string)
+        : 'agent-2';
+
+    return {
+      turn: 1,
+      value: 0,
+      attackerId,
+      defenderId,
+    };
+  }
+}
+
 describe('Engine', () => {
   let engine: Engine;
   let redisManager: RedisManager;
@@ -164,6 +192,27 @@ describe('Engine', () => {
         gameId: 'rule-aware-game',
         ruleId: 'standard',
         ruleVersion: '2.1.0',
+      }),
+    );
+  });
+
+  it('should persist custom role assignments when starting a match', async () => {
+    const matchId = 'match-roles';
+    engine.registerPlugin(new RoleAwareGamePlugin());
+
+    await engine.startMatch(matchId, 'role-aware-game', 123, {
+      roleAssignments: {
+        attackerId: 'alpha-agent',
+        defenderId: 'beta-agent',
+      },
+    });
+
+    const state = await redisManager.getMatchState(matchId);
+    expect(state).toEqual(
+      expect.objectContaining({
+        turn: 1,
+        attackerId: 'alpha-agent',
+        defenderId: 'beta-agent',
       }),
     );
   });
