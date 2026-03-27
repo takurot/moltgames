@@ -54,6 +54,7 @@ import {
   InMemoryMatchRepository,
   type MatchRepository,
 } from './match/repository.js';
+import { RedisMatchActionRateLimiter } from './websocket/match-action-rate-limiter.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -143,10 +144,6 @@ interface AgentSession {
 
 interface RatingJobQueue {
   enqueue(job: MatchResultJob): Promise<void>;
-}
-
-interface MatchActionRateLimitState {
-  timestamps: number[];
 }
 
 const SUPPORTED_WS_PROTOCOL = 'moltgame.v1';
@@ -376,43 +373,6 @@ const mapRuntimeErrorToToolResponse = (requestId: string, error: unknown): ToolC
   };
 };
 
-const createMatchActionRateLimiter = () => {
-  const states = new Map<string, MatchActionRateLimitState>();
-
-  const pruneState = (timestamps: number[], now: number): number[] => {
-    while (timestamps.length > 0) {
-      const oldestTimestamp = timestamps[0];
-      if (oldestTimestamp === undefined || now - oldestTimestamp < WS_ACTION_RATE_LIMIT_WINDOW_MS) {
-        break;
-      }
-      timestamps.shift();
-    }
-    return timestamps;
-  };
-
-  return {
-    allow(matchId: string): boolean {
-      const now = Date.now();
-      const state = states.get(matchId) ?? { timestamps: [] };
-      const timestamps = pruneState(state.timestamps, now);
-
-      if (timestamps.length >= WS_ACTION_RATE_LIMIT_MAX) {
-        state.timestamps = timestamps;
-        states.set(matchId, state);
-        return false;
-      }
-
-      timestamps.push(now);
-      state.timestamps = timestamps;
-      states.set(matchId, state);
-      return true;
-    },
-    clear(matchId: string): void {
-      states.delete(matchId);
-    },
-  };
-};
-
 const normalizeRawDataToText = (rawData: RawData): string => {
   if (typeof rawData === 'string') {
     return rawData;
@@ -605,7 +565,11 @@ export const createApp = async (options: AppOptions = {}) => {
   const replayService = new ReplayService({ repository: replayRepository, storage: replayStorage });
   const spectatorAccessController =
     options.spectatorAccessController ?? defaultSpectatorAccessController;
-  const matchActionRateLimiter = createMatchActionRateLimiter();
+  const matchActionRateLimiter = new RedisMatchActionRateLimiter(
+    redis,
+    WS_ACTION_RATE_LIMIT_WINDOW_MS,
+    WS_ACTION_RATE_LIMIT_MAX,
+  );
 
   const matchRepository: MatchRepository =
     options.matchRepository ??
@@ -637,6 +601,13 @@ export const createApp = async (options: AppOptions = {}) => {
       sessionIdByMatchAgent.delete(toSessionLookupKey(session.matchId, session.agentId));
       session.forfeitTimer = null;
       session.reconnectDeadlineAtMs = null;
+
+      void matchActionRateLimiter.clear(session.matchId).catch((error: unknown) => {
+        app.log.warn(
+          { error, matchId: session.matchId },
+          'Failed to clear websocket action rate limit state after forfeit',
+        );
+      });
 
       // Transition match status to ABORTED (Issue #38)
       matchRepository.updateStatus(session.matchId, 'ABORTED').catch((err: unknown) => {
@@ -847,7 +818,7 @@ export const createApp = async (options: AppOptions = {}) => {
           return;
         }
 
-        if (!matchActionRateLimiter.allow(session.matchId)) {
+        if (!(await matchActionRateLimiter.allow(session.matchId))) {
           const response: ToolCallResponse = {
             request_id: request.request_id,
             status: 'error',
@@ -977,7 +948,12 @@ export const createApp = async (options: AppOptions = {}) => {
 
           // Mark match as ended to block subsequent tool calls (Issue #41)
           endedMatchIds.add(session.matchId);
-          matchActionRateLimiter.clear(session.matchId);
+          void matchActionRateLimiter.clear(session.matchId).catch((error: unknown) => {
+            app.log.warn(
+              { error, matchId: session.matchId },
+              'Failed to clear websocket action rate limit state after match end',
+            );
+          });
 
           // Transition match status to FINISHED (Issue #38)
           matchRepository
