@@ -70,6 +70,106 @@ describe('Engine server /matches/:matchId/start', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 
+  it('returns 400 when only one custom role assignment is provided', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-partial-role/start',
+      payload: {
+        gameId: 'prompt-injection-arena',
+        seed: 1,
+        attackerId: 'alpha-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'attackerId and defenderId must be provided together',
+    });
+  });
+
+  it('returns 400 when custom role assignments are used for another game', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-invalid-role-game/start',
+      payload: {
+        gameId: 'test-game',
+        seed: 1,
+        attackerId: 'alpha-agent',
+        defenderId: 'beta-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'Custom role assignments are only supported for prompt-injection-arena',
+    });
+  });
+
+  it('returns 400 when custom role assignments reuse the same agent id', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-duplicate-role/start',
+      payload: {
+        gameId: 'prompt-injection-arena',
+        seed: 1,
+        attackerId: 'alpha-agent',
+        defenderId: 'alpha-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'attackerId and defenderId must be different',
+    });
+  });
+
+  it('accepts custom role assignments for prompt-injection-arena start request', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-3/start',
+      payload: {
+        gameId: 'prompt-injection-arena',
+        seed: 1,
+        attackerId: 'alpha-agent',
+        defenderId: 'beta-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'ok' });
+
+    const attackerToolsResponse = await fastify.inject({
+      method: 'GET',
+      url: '/matches/match-3/tools',
+      query: { agentId: 'alpha-agent' },
+    });
+
+    expect(attackerToolsResponse.statusCode).toBe(200);
+    expect(attackerToolsResponse.json()).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+        tools: expect.arrayContaining([expect.objectContaining({ name: 'send_message' })]),
+      }),
+    );
+
+    const defenderToolsResponse = await fastify.inject({
+      method: 'GET',
+      url: '/matches/match-3/tools',
+      query: { agentId: 'beta-agent' },
+    });
+
+    expect(defenderToolsResponse.statusCode).toBe(200);
+    expect(defenderToolsResponse.json()).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+        tools: [],
+      }),
+    );
+  });
+
   it('returns available tools for an active match', async () => {
     const startResponse = await fastify.inject({
       method: 'POST',
