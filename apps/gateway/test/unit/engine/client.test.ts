@@ -4,7 +4,7 @@ import { EngineClient } from '../../../src/engine/client.js';
 
 describe('EngineClient', () => {
   let client: EngineClient;
-  let mockFetch: any;
+  let mockFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     mockFetch = vi.fn();
@@ -41,6 +41,16 @@ describe('EngineClient', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ok' }) });
 
     const result = await client.post('/test', {});
+    expect(result).toEqual({ status: 'ok' });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('should retry GET requests on 5xx error', async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ok' }) });
+
+    const result = await client.get('/test');
     expect(result).toEqual({ status: 'ok' });
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
