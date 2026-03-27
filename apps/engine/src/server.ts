@@ -13,6 +13,8 @@ export interface CreateServerOptions {
   rulesDir?: string;
 }
 
+const PROMPT_INJECTION_ARENA_GAME_ID = 'prompt-injection-arena';
+
 export const createServer = async (options: CreateServerOptions = {}) => {
   const fastify = Fastify({
     logger: true,
@@ -65,15 +67,36 @@ export const createServer = async (options: CreateServerOptions = {}) => {
     async (request, reply) => {
       const { matchId } = request.params;
       const { gameId, seed, attackerId, defenderId } = request.body;
+      const hasAttackerId = typeof attackerId === 'string' && attackerId.length > 0;
+      const hasDefenderId = typeof defenderId === 'string' && defenderId.length > 0;
+
+      if (hasAttackerId !== hasDefenderId) {
+        reply.status(400).send({
+          status: 'error',
+          message: 'attackerId and defenderId must be provided together',
+        });
+        return;
+      }
+
+      if (hasAttackerId && gameId !== PROMPT_INJECTION_ARENA_GAME_ID) {
+        reply.status(400).send({
+          status: 'error',
+          message: 'Custom role assignments are only supported for prompt-injection-arena',
+        });
+        return;
+      }
+
+      if (hasAttackerId && attackerId === defenderId) {
+        reply.status(400).send({
+          status: 'error',
+          message: 'attackerId and defenderId must be different',
+        });
+        return;
+      }
 
       try {
         const roleAssignments =
-          typeof attackerId === 'string' &&
-          attackerId.length > 0 &&
-          typeof defenderId === 'string' &&
-          defenderId.length > 0
-            ? { attackerId, defenderId }
-            : undefined;
+          hasAttackerId && hasDefenderId ? { attackerId, defenderId } : undefined;
 
         if (roleAssignments === undefined) {
           await engine.startMatch(matchId, gameId, seed);

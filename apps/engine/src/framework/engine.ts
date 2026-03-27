@@ -198,7 +198,9 @@ export class Engine {
 
     const parameters = {
       ...(activeRule?.parameters ?? {}),
-      ...(options.roleAssignments === undefined ? {} : { roleAssignments: options.roleAssignments }),
+      ...(options.roleAssignments === undefined
+        ? {}
+        : { roleAssignments: options.roleAssignments }),
     } as LoadedGameRule['parameters'];
 
     if (activeRule !== undefined) {

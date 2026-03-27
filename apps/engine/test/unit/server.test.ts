@@ -70,6 +70,62 @@ describe('Engine server /matches/:matchId/start', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 
+  it('returns 400 when only one custom role assignment is provided', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-partial-role/start',
+      payload: {
+        gameId: 'prompt-injection-arena',
+        seed: 1,
+        attackerId: 'alpha-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'attackerId and defenderId must be provided together',
+    });
+  });
+
+  it('returns 400 when custom role assignments are used for another game', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-invalid-role-game/start',
+      payload: {
+        gameId: 'test-game',
+        seed: 1,
+        attackerId: 'alpha-agent',
+        defenderId: 'beta-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'Custom role assignments are only supported for prompt-injection-arena',
+    });
+  });
+
+  it('returns 400 when custom role assignments reuse the same agent id', async () => {
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-duplicate-role/start',
+      payload: {
+        gameId: 'prompt-injection-arena',
+        seed: 1,
+        attackerId: 'alpha-agent',
+        defenderId: 'alpha-agent',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      status: 'error',
+      message: 'attackerId and defenderId must be different',
+    });
+  });
+
   it('accepts custom role assignments for prompt-injection-arena start request', async () => {
     const response = await fastify.inject({
       method: 'POST',
@@ -95,9 +151,7 @@ describe('Engine server /matches/:matchId/start', () => {
     expect(attackerToolsResponse.json()).toEqual(
       expect.objectContaining({
         status: 'ok',
-        tools: expect.arrayContaining([
-          expect.objectContaining({ name: 'send_message' }),
-        ]),
+        tools: expect.arrayContaining([expect.objectContaining({ name: 'send_message' })]),
       }),
     );
 

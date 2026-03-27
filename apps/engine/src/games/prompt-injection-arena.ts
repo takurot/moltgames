@@ -160,16 +160,16 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
       ...rule,
       tools: rule.tools.length > 0 ? [...rule.tools] : [...DEFAULT_RULE.tools],
       parameters: {
-        ...(DEFAULT_RULE.parameters as Record<string, unknown>),
-        ...(rule.parameters as Record<string, unknown>),
+        ...(DEFAULT_RULE.parameters as LoadedGameRule['parameters']),
+        ...(rule.parameters as LoadedGameRule['parameters']),
       },
       termination: {
-        ...(DEFAULT_RULE.termination as Record<string, unknown>),
-        ...(rule.termination as Record<string, unknown>),
+        ...(DEFAULT_RULE.termination as LoadedGameRule['termination']),
+        ...(rule.termination as LoadedGameRule['termination']),
       },
       redactionPolicy: {
-        ...(DEFAULT_RULE.redactionPolicy as Record<string, unknown>),
-        ...(rule.redactionPolicy as Record<string, unknown>),
+        ...(DEFAULT_RULE.redactionPolicy as LoadedGameRule['redactionPolicy']),
+        ...(rule.redactionPolicy as LoadedGameRule['redactionPolicy']),
       },
     };
     const parameters = mergedRule.parameters as Record<string, unknown>;
