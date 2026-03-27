@@ -1,6 +1,1 @@
-export const WEB_APP_NAME = '@moltgames/web';
-
-export const getWebBootstrapInfo = () => ({
-  app: WEB_APP_NAME,
-  runtime: 'node',
-});
+// Entry point stub replaced by Next.js app in src/app/
