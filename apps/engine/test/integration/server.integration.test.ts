@@ -9,7 +9,11 @@ vi.mock('ioredis', () => import('ioredis-mock'));
 vi.mock('@moltgames/mcp-protocol', () => ({
   DILEMMA_POKER_GET_STATUS_SCHEMA: { type: 'object', properties: {}, additionalProperties: false },
   DILEMMA_POKER_NEGOTIATE_SCHEMA: { type: 'object', properties: {}, additionalProperties: false },
-  DILEMMA_POKER_COMMIT_ACTION_SCHEMA: { type: 'object', properties: {}, additionalProperties: false },
+  DILEMMA_POKER_COMMIT_ACTION_SCHEMA: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
   isMcpToolDefinition: () => true,
   isToolCallResponse: () => true,
   parseToolCallRequest: (value: unknown) => value,
