@@ -145,11 +145,17 @@ interface RatingJobQueue {
   enqueue(job: MatchResultJob): Promise<void>;
 }
 
+interface MatchActionRateLimitState {
+  timestamps: number[];
+}
+
 const SUPPORTED_WS_PROTOCOL = 'moltgame.v1';
 const DEFAULT_ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:8081';
 const DEFAULT_RECONNECT_GRACE_MS = 20_000;
 const RECONNECT_BACKOFF_INITIAL_MS = 1_000;
 const RECONNECT_BACKOFF_MAX_MS = 8_000;
+const WS_ACTION_RATE_LIMIT_WINDOW_MS = 10_000;
+const WS_ACTION_RATE_LIMIT_MAX = 20;
 const READ_ONLY_SPECTATOR_ERROR = {
   type: 'error',
   error: {
@@ -370,6 +376,43 @@ const mapRuntimeErrorToToolResponse = (requestId: string, error: unknown): ToolC
   };
 };
 
+const createMatchActionRateLimiter = () => {
+  const states = new Map<string, MatchActionRateLimitState>();
+
+  const pruneState = (timestamps: number[], now: number): number[] => {
+    while (timestamps.length > 0) {
+      const oldestTimestamp = timestamps[0];
+      if (oldestTimestamp === undefined || now - oldestTimestamp < WS_ACTION_RATE_LIMIT_WINDOW_MS) {
+        break;
+      }
+      timestamps.shift();
+    }
+    return timestamps;
+  };
+
+  return {
+    allow(matchId: string): boolean {
+      const now = Date.now();
+      const state = states.get(matchId) ?? { timestamps: [] };
+      const timestamps = pruneState(state.timestamps, now);
+
+      if (timestamps.length >= WS_ACTION_RATE_LIMIT_MAX) {
+        state.timestamps = timestamps;
+        states.set(matchId, state);
+        return false;
+      }
+
+      timestamps.push(now);
+      state.timestamps = timestamps;
+      states.set(matchId, state);
+      return true;
+    },
+    clear(matchId: string): void {
+      states.delete(matchId);
+    },
+  };
+};
+
 const normalizeRawDataToText = (rawData: RawData): string => {
   if (typeof rawData === 'string') {
     return rawData;
@@ -562,6 +605,7 @@ export const createApp = async (options: AppOptions = {}) => {
   const replayService = new ReplayService({ repository: replayRepository, storage: replayStorage });
   const spectatorAccessController =
     options.spectatorAccessController ?? defaultSpectatorAccessController;
+  const matchActionRateLimiter = createMatchActionRateLimiter();
 
   const matchRepository: MatchRepository =
     options.matchRepository ??
@@ -803,6 +847,20 @@ export const createApp = async (options: AppOptions = {}) => {
           return;
         }
 
+        if (!matchActionRateLimiter.allow(session.matchId)) {
+          const response: ToolCallResponse = {
+            request_id: request.request_id,
+            status: 'error',
+            error: {
+              code: 'SERVICE_UNAVAILABLE',
+              message: 'WebSocket action rate limit exceeded',
+              retryable: true,
+            },
+          };
+          sendJson(socket, response, app.log);
+          return;
+        }
+
         // Issue #36: measure actual action latency
         const actionStartMs = Date.now();
         const rawResponse = await engineClient.callTool(session.matchId, {
@@ -919,6 +977,7 @@ export const createApp = async (options: AppOptions = {}) => {
 
           // Mark match as ended to block subsequent tool calls (Issue #41)
           endedMatchIds.add(session.matchId);
+          matchActionRateLimiter.clear(session.matchId);
 
           // Transition match status to FINISHED (Issue #38)
           matchRepository
