@@ -7,7 +7,9 @@ import WebSocket, { type RawData } from 'ws';
 import {
   createApp,
   type GatewayEngineClient,
+  type MatchLifecycleNotifier,
   type SpectatorAccessController,
+  type SpectatorLatencyRecorder,
 } from '../../src/app.js';
 import {
   type FirebaseIdTokenVerifier,
@@ -1414,6 +1416,210 @@ describe('Gateway WebSocket integration', () => {
           value.status === 'error',
       );
     expect(duplicateErrors).toHaveLength(0);
+
+    spectatorSocket.close();
+    playerSocket.close();
+  });
+
+  it('notifies configured webhooks when a match starts and ends', async () => {
+    const notifier: MatchLifecycleNotifier = {
+      notifyMatchStarted: vi.fn(async () => {}),
+      notifyMatchEnded: vi.fn(async () => {}),
+    };
+
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a message',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-match-ended',
+        status: 'ok',
+        result: { accepted: true },
+        termination: {
+          ended: true,
+          winner: 'agent-1',
+          reason: 'finished',
+        },
+      })),
+      getMatchMeta: vi.fn(async () => ({
+        gameId: 'prompt-injection-arena',
+        ruleVersion: '1.1.0',
+      })),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+      matchLifecycleNotifier: notifier,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueAgent1TokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-webhooks', agentId: 'agent-1' },
+    });
+    const issueAgent2TokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-webhooks', agentId: 'agent-2' },
+    });
+    const { connectToken: agent1Token } = issueAgent1TokenResponse.json<{ connectToken: string }>();
+    const { connectToken: agent2Token } = issueAgent2TokenResponse.json<{ connectToken: string }>();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const agent1 = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(agent1Token)}`,
+      'moltgame.v1',
+    );
+    const agent2 = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(agent2Token)}`,
+      'moltgame.v1',
+    );
+    const agent1Collector = new MessageCollector(agent1);
+    const agent2Collector = new MessageCollector(agent2);
+
+    await waitForOpen(agent1);
+    await waitForOpen(agent2);
+    await agent1Collector.waitFor(isSessionReady);
+    await agent2Collector.waitFor(isSessionReady);
+    await agent1Collector.waitFor(isToolsList);
+    await agent2Collector.waitFor(isToolsList);
+
+    expect(notifier.notifyMatchStarted).toHaveBeenCalledTimes(1);
+
+    agent1.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-match-ended',
+        args: { content: 'hello' },
+      }),
+    );
+
+    await agent1Collector.waitFor(isMatchEnded);
+    await agent2Collector.waitFor(isMatchEnded);
+
+    expect(notifier.notifyMatchEnded).toHaveBeenCalledTimes(1);
+    expect(notifier.notifyMatchEnded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId: 'match-webhooks',
+        status: 'FINISHED',
+      }),
+      expect.objectContaining({
+        winnerAgentId: 'agent-1',
+        winnerUid: 'test-user',
+        reason: 'finished',
+      }),
+    );
+
+    agent1.close();
+    agent2.close();
+  });
+
+  it('records spectator broadcast latency samples for live match events', async () => {
+    const latencyRecorder: SpectatorLatencyRecorder = {
+      record: vi.fn(async () => {}),
+    };
+
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a message',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async () => ({
+        request_id: 'req-latency-metric',
+        status: 'ok',
+        result: { accepted: true },
+        turnEventContext: {
+          phase: 'dialogue',
+          seat: 'first',
+          scoreDiffBefore: 0,
+          scoreDiffAfter: 1,
+          ruleVersion: '1.1.0',
+        },
+      })),
+      getMatchMeta: vi.fn(async () => ({
+        gameId: 'prompt-injection-arena',
+        ruleVersion: '1.1.0',
+      })),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+      spectatorLatencyRecorder: latencyRecorder,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-latency-metric', agentId: 'agent-1' },
+    });
+    const { connectToken } = issueTokenResponse.json<{ connectToken: string }>();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const spectatorSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws/spectate?match_id=match-latency-metric`,
+      'moltgame.v1',
+      { headers: { authorization: 'Bearer spectator-token' } },
+    );
+    const spectatorCollector = new MessageCollector(spectatorSocket);
+    await waitForOpen(spectatorSocket);
+    await spectatorCollector.waitFor(isSpectatorReady);
+
+    const playerSocket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(connectToken)}`,
+      'moltgame.v1',
+    );
+    const playerCollector = new MessageCollector(playerSocket);
+    await waitForOpen(playerSocket);
+    await playerCollector.waitFor(isSessionReady);
+    await playerCollector.waitFor(isToolsList);
+
+    playerSocket.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-latency-metric',
+        args: { content: 'hello' },
+      }),
+    );
+
+    await spectatorCollector.waitFor(isMatchEvent);
+    expect(latencyRecorder.record).toHaveBeenCalledTimes(1);
+    expect(latencyRecorder.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchId: 'match-latency-metric',
+        spectatorCount: 1,
+        targetLatencyMs: 200,
+      }),
+    );
 
     spectatorSocket.close();
     playerSocket.close();
