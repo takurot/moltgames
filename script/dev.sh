@@ -45,6 +45,10 @@ SKILL_E2E="$SKILL_DIR/e2e-testing/SKILL.md"
 # クロスステップ共有メモ (continuous-agent-loop パターン)
 # 各ステップが知見を書き込み、後続ステップが参照する
 NOTES_FILE=".dev-task-notes.md"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# shellcheck source=script/review-prompt.sh
+. "$SCRIPT_DIR/review-prompt.sh"
 
 if [ -z "$PLAN" ] || [ -z "$TASK" ]; then
   echo "Usage: ./temp/dev.sh <PLAN.md のパス> 'Phase X.Y: タスク説明'"
@@ -408,60 +412,7 @@ echo "==> [10/12] コードレビュー (Codex)"
 
 REVIEW_FILE="review-${PR_NUMBER}.md"
 
-codex --yolo "
-Review the pull request diff.
-Run: gh pr diff $PR_NUMBER
-
-Review checklist:
-
-[SECURITY - CRITICAL]
-- Hardcoded secrets or API keys
-- SQL/command injection vulnerabilities
-- Authentication/authorization bypass
-- Unvalidated user input
-- Sensitive data in logs
-
-[CODE QUALITY - HIGH]
-- Functions >50 lines or files >800 lines
-- Missing error handling
-- N+1 query patterns
-- Missing tests for new code paths
-- Dead code or unused imports
-
-[CORRECTNESS - HIGH]
-- Logic errors or off-by-one bugs
-- Race conditions or concurrency issues
-- Missing edge case handling
-
-[STYLE - LOW]
-- Naming inconsistencies
-- Magic numbers without constants
-
-Output format (Markdown):
-## Code Review
-
-### Summary
-<1-2 sentence overall assessment>
-
-### Findings
-
-#### CRITICAL
-- file:line — description and suggested fix
-
-#### HIGH
-- file:line — description and suggested fix
-
-#### MEDIUM
-- file:line — description and suggested fix
-
-#### LOW
-- file:line — description and suggested fix
-
-### Verdict
-APPROVE / REQUEST_CHANGES / BLOCK
-
-Save the full review output to: $REVIEW_FILE
-" | tee "$REVIEW_FILE"
+codex --yolo "$(build_codex_review_prompt "$PR_NUMBER" "$TASK" "$NOTES_FILE" "$PLAN")" | tee "$REVIEW_FILE"
 
 # --------------------------------------------------
 # STEP 10: レビュー内容を PR コメントに投稿
