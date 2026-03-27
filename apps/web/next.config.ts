@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+const isDev = process.env['NODE_ENV'] === 'development';
+
 const securityHeaders = [
   {
     key: 'X-Content-Type-Options',
@@ -20,10 +22,11 @@ const securityHeaders = [
   {
     key: 'Content-Security-Policy',
     // Allow Firebase Auth domains for sign-in popups/redirects and the app's own API.
-    // 'unsafe-inline' for styles is required by Tailwind CSS in development; tighten to a hash/nonce in a future pass.
+    // 'unsafe-inline' for styles is required by Tailwind CSS; tighten to a hash/nonce in a future pass.
+    // 'unsafe-eval' is only included in development (Next.js HMR requires it).
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-eval'",
+      isDev ? "script-src 'self' 'unsafe-eval'" : "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "font-src 'self'",

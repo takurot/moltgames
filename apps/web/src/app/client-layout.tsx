@@ -10,8 +10,13 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const handleSignOut = async () => {
-    await signOut();
-    router.push('/login');
+    try {
+      await signOut();
+      router.push('/login');
+    } catch {
+      // Sign-out failure is non-fatal — the user remains on the current page.
+      // Firebase signOut rarely fails (network issues, already signed out).
+    }
   };
 
   const navUser =
