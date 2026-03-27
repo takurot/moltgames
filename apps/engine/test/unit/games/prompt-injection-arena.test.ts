@@ -36,6 +36,27 @@ describe('PromptInjectionArena', () => {
     expect(state.defenderId).toBe('beta-agent');
   });
 
+  it('falls back to default turnLimit when synthetic rule has no tools', () => {
+    // engine.ts buildInitializationRule creates a synthetic rule with tools: []
+    // and a stub turnLimit. The game must not use the stub value.
+    const state = plugin.initialize(12345, {
+      gameId: 'prompt-injection-arena',
+      ruleId: 'dynamic-start',
+      ruleVersion: '1.1.0',
+      turnLimit: 1, // stub value from synthetic rule
+      tools: [],
+      parameters: {
+        roleAssignments: { attackerId: 'alpha-agent', defenderId: 'beta-agent' },
+      },
+      termination: {},
+      redactionPolicy: {},
+    });
+
+    expect(state.maxTurns).toBe(10); // DEFAULT_RULE.turnLimit
+    expect(state.attackerId).toBe('alpha-agent');
+    expect(state.defenderId).toBe('beta-agent');
+  });
+
   it('allows attacker to send message', () => {
     const state = plugin.initialize(12345);
     const action = {

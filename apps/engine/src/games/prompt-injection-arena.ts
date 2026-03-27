@@ -158,6 +158,7 @@ export class PromptInjectionArena implements GamePlugin<PromptInjectionArenaStat
     const mergedRule: LoadedGameRule = {
       ...DEFAULT_RULE,
       ...rule,
+      turnLimit: rule.tools.length > 0 ? rule.turnLimit : DEFAULT_RULE.turnLimit,
       tools: rule.tools.length > 0 ? [...rule.tools] : [...DEFAULT_RULE.tools],
       parameters: {
         ...(DEFAULT_RULE.parameters as LoadedGameRule['parameters']),
