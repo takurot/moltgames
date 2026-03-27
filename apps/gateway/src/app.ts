@@ -54,6 +54,7 @@ import {
   InMemoryMatchRepository,
   type MatchRepository,
 } from './match/repository.js';
+import { RedisMatchActionRateLimiter } from './websocket/match-action-rate-limiter.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -150,6 +151,8 @@ const DEFAULT_ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:8081';
 const DEFAULT_RECONNECT_GRACE_MS = 20_000;
 const RECONNECT_BACKOFF_INITIAL_MS = 1_000;
 const RECONNECT_BACKOFF_MAX_MS = 8_000;
+const WS_ACTION_RATE_LIMIT_WINDOW_MS = 10_000;
+const WS_ACTION_RATE_LIMIT_MAX = 20;
 const READ_ONLY_SPECTATOR_ERROR = {
   type: 'error',
   error: {
@@ -562,6 +565,11 @@ export const createApp = async (options: AppOptions = {}) => {
   const replayService = new ReplayService({ repository: replayRepository, storage: replayStorage });
   const spectatorAccessController =
     options.spectatorAccessController ?? defaultSpectatorAccessController;
+  const matchActionRateLimiter = new RedisMatchActionRateLimiter(
+    redis,
+    WS_ACTION_RATE_LIMIT_WINDOW_MS,
+    WS_ACTION_RATE_LIMIT_MAX,
+  );
 
   const matchRepository: MatchRepository =
     options.matchRepository ??
@@ -593,6 +601,13 @@ export const createApp = async (options: AppOptions = {}) => {
       sessionIdByMatchAgent.delete(toSessionLookupKey(session.matchId, session.agentId));
       session.forfeitTimer = null;
       session.reconnectDeadlineAtMs = null;
+
+      void matchActionRateLimiter.clear(session.matchId).catch((error: unknown) => {
+        app.log.warn(
+          { error, matchId: session.matchId },
+          'Failed to clear websocket action rate limit state after forfeit',
+        );
+      });
 
       // Transition match status to ABORTED (Issue #38)
       matchRepository.updateStatus(session.matchId, 'ABORTED').catch((err: unknown) => {
@@ -803,6 +818,20 @@ export const createApp = async (options: AppOptions = {}) => {
           return;
         }
 
+        if (!(await matchActionRateLimiter.allow(session.matchId))) {
+          const response: ToolCallResponse = {
+            request_id: request.request_id,
+            status: 'error',
+            error: {
+              code: 'SERVICE_UNAVAILABLE',
+              message: 'WebSocket action rate limit exceeded',
+              retryable: true,
+            },
+          };
+          sendJson(socket, response, app.log);
+          return;
+        }
+
         // Issue #36: measure actual action latency
         const actionStartMs = Date.now();
         const rawResponse = await engineClient.callTool(session.matchId, {
@@ -919,6 +948,12 @@ export const createApp = async (options: AppOptions = {}) => {
 
           // Mark match as ended to block subsequent tool calls (Issue #41)
           endedMatchIds.add(session.matchId);
+          void matchActionRateLimiter.clear(session.matchId).catch((error: unknown) => {
+            app.log.warn(
+              { error, matchId: session.matchId },
+              'Failed to clear websocket action rate limit state after match end',
+            );
+          });
 
           // Transition match status to FINISHED (Issue #38)
           matchRepository

@@ -477,6 +477,261 @@ describe('Gateway WebSocket integration', () => {
     agent2.close();
   });
 
+  it('limits websocket actions to 20 requests per match within 10 seconds', async () => {
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a prompt',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async (_matchId, request) => ({
+        request_id: request.request_id,
+        status: 'ok',
+        result: { accepted: true },
+      })),
+      getMatchMeta: vi.fn(async () => null),
+    };
+
+    const app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(app);
+    await app.ready();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+
+    const issueAgent1TokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-ws-rate-limit', agentId: 'agent-1' },
+    });
+    const issueAgent2TokenResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-ws-rate-limit', agentId: 'agent-2' },
+    });
+    const { connectToken: agent1Token } = issueAgent1TokenResponse.json();
+    const { connectToken: agent2Token } = issueAgent2TokenResponse.json();
+
+    const address = app.server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server address is unavailable');
+    }
+
+    const agent1 = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(agent1Token)}`,
+      'moltgame.v1',
+    );
+    const agent2 = new WebSocket(
+      `ws://127.0.0.1:${address.port}/v1/ws?connect_token=${encodeURIComponent(agent2Token)}`,
+      'moltgame.v1',
+    );
+    const agent1Collector = new MessageCollector(agent1);
+    const agent2Collector = new MessageCollector(agent2);
+
+    await Promise.all([waitForOpen(agent1), waitForOpen(agent2)]);
+    await Promise.all([
+      agent1Collector.waitFor(isSessionReady),
+      agent2Collector.waitFor(isSessionReady),
+      agent1Collector.waitFor(isToolsList),
+      agent2Collector.waitFor(isToolsList),
+    ]);
+
+    const sendAndAwaitOk = async (
+      socket: WebSocket,
+      collector: MessageCollector,
+      requestId: string,
+      content: string,
+    ) => {
+      socket.send(
+        JSON.stringify({
+          tool: 'send_message',
+          request_id: requestId,
+          args: { content },
+        }),
+      );
+
+      return collector.waitFor(
+        (
+          value,
+        ): value is {
+          request_id: string;
+          status: 'ok' | 'error';
+          error?: { code: string; retryable: boolean };
+        } =>
+          isToolCallResponse(value) && (value as { request_id: string }).request_id === requestId,
+      );
+    };
+
+    for (let index = 1; index <= 20; index++) {
+      const isAgent1Turn = index % 2 === 1;
+      const socket = isAgent1Turn ? agent1 : agent2;
+      const collector = isAgent1Turn ? agent1Collector : agent2Collector;
+      const response = await sendAndAwaitOk(socket, collector, `req-${index}`, `msg-${index}`);
+      expect(response.status).toBe('ok');
+    }
+
+    expect(engineClient.callTool).toHaveBeenCalledTimes(20);
+
+    agent1.send(
+      JSON.stringify({
+        tool: 'send_message',
+        request_id: 'req-21',
+        args: { content: 'msg-21' },
+      }),
+    );
+
+    const limitedResponse = await agent1Collector.waitFor(
+      (
+        value,
+      ): value is {
+        request_id: string;
+        status: 'error';
+        error: { code: string; message: string; retryable: boolean };
+      } =>
+        isToolCallResponse(value) &&
+        (value as { request_id: string }).request_id === 'req-21' &&
+        (value as { status: string }).status === 'error' &&
+        typeof (value as { error?: unknown }).error === 'object' &&
+        (value as { error?: { code?: string } }).error?.code === 'SERVICE_UNAVAILABLE',
+    );
+
+    expect(limitedResponse.error.retryable).toBe(true);
+    expect(engineClient.callTool).toHaveBeenCalledTimes(20);
+
+    agent1.close();
+    agent2.close();
+  });
+
+  it('shares websocket action rate limiting across gateway instances', async () => {
+    const sharedRedis = new RedisMock() as unknown as Redis;
+    const engineClient: GatewayEngineClient = {
+      getTools: vi.fn(async () => [
+        {
+          name: 'send_message',
+          description: 'Send a prompt',
+          version: '1.0.0',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      callTool: vi.fn(async (_matchId, request) => ({
+        request_id: request.request_id,
+        status: 'ok',
+        result: { accepted: true },
+      })),
+      getMatchMeta: vi.fn(async () => null),
+    };
+
+    const appA = await createApp({
+      redis: sharedRedis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    const appB = await createApp({
+      redis: sharedRedis,
+      verifier: new MockVerifier(),
+      engineClient,
+    });
+    apps.push(appA, appB);
+    await Promise.all([appA.ready(), appB.ready()]);
+    await Promise.all([
+      appA.listen({ host: '127.0.0.1', port: 0 }),
+      appB.listen({ host: '127.0.0.1', port: 0 }),
+    ]);
+
+    const issueAgent1TokenResponse = await appA.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-ws-rate-limit-shared', agentId: 'agent-1' },
+    });
+    const issueAgent2TokenResponse = await appB.inject({
+      method: 'POST',
+      url: '/v1/tokens',
+      headers: { authorization: 'Bearer valid-token' },
+      payload: { matchId: 'match-ws-rate-limit-shared', agentId: 'agent-2' },
+    });
+    const { connectToken: agent1Token } = issueAgent1TokenResponse.json();
+    const { connectToken: agent2Token } = issueAgent2TokenResponse.json();
+
+    const addressA = appA.server.address();
+    const addressB = appB.server.address();
+    if (addressA === null || typeof addressA === 'string') {
+      throw new Error('Server address for appA is unavailable');
+    }
+    if (addressB === null || typeof addressB === 'string') {
+      throw new Error('Server address for appB is unavailable');
+    }
+
+    const agent1 = new WebSocket(
+      `ws://127.0.0.1:${addressA.port}/v1/ws?connect_token=${encodeURIComponent(agent1Token)}`,
+      'moltgame.v1',
+    );
+    const agent2 = new WebSocket(
+      `ws://127.0.0.1:${addressB.port}/v1/ws?connect_token=${encodeURIComponent(agent2Token)}`,
+      'moltgame.v1',
+    );
+    const agent1Collector = new MessageCollector(agent1);
+    const agent2Collector = new MessageCollector(agent2);
+
+    await Promise.all([waitForOpen(agent1), waitForOpen(agent2)]);
+    await Promise.all([
+      agent1Collector.waitFor(isSessionReady),
+      agent2Collector.waitFor(isSessionReady),
+      agent1Collector.waitFor(isToolsList),
+      agent2Collector.waitFor(isToolsList),
+    ]);
+
+    const sendAndAwaitResponse = async (
+      socket: WebSocket,
+      collector: MessageCollector,
+      requestId: string,
+    ) => {
+      socket.send(
+        JSON.stringify({
+          tool: 'send_message',
+          request_id: requestId,
+          args: { content: requestId },
+        }),
+      );
+
+      return collector.waitFor(
+        (value): value is { request_id: string; status: 'ok' | 'error' } =>
+          isToolCallResponse(value) && (value as { request_id: string }).request_id === requestId,
+      );
+    };
+
+    for (let index = 1; index <= 20; index++) {
+      const isAgent1Turn = index % 2 === 1;
+      const response = await sendAndAwaitResponse(
+        isAgent1Turn ? agent1 : agent2,
+        isAgent1Turn ? agent1Collector : agent2Collector,
+        `shared-${index}`,
+      );
+      expect(response.status).toBe('ok');
+    }
+
+    const limitedResponse = await sendAndAwaitResponse(agent2, agent2Collector, 'shared-21');
+    expect(limitedResponse).toMatchObject({
+      request_id: 'shared-21',
+      status: 'error',
+      error: {
+        code: 'SERVICE_UNAVAILABLE',
+        retryable: true,
+      },
+    });
+    expect(engineClient.callTool).toHaveBeenCalledTimes(20);
+
+    agent1.close();
+    agent2.close();
+  });
+
   it('rejects tool calls that are not in the current session tool list', async () => {
     const engineClient: GatewayEngineClient = {
       getTools: vi.fn(async () => [
