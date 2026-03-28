@@ -734,20 +734,22 @@ export const createApp = async (options: AppOptions = {}) => {
       (s) => s.matchId === matchId,
     ).length;
 
-    if (connectedCount >= 2) {
-      // Both agents connected — transition to IN_PROGRESS
+    const shouldStartMatch =
+      connectedCount >= 2 &&
+      (existing.status === 'WAITING_AGENT_CONNECT' || existing.status === 'READY');
+
+    if (shouldStartMatch) {
+      // Both agents connected for the first time — transition to IN_PROGRESS
       const startedMatch: Match = {
         ...existing,
         participants,
         status: 'IN_PROGRESS',
-        startedAt: new Date().toISOString(),
+        startedAt: existing.startedAt ?? new Date().toISOString(),
       };
       await matchRepository.save(startedMatch);
-      if (existing.status !== 'IN_PROGRESS') {
-        notifyMatchStarted(startedMatch);
-      }
+      notifyMatchStarted(startedMatch);
     } else {
-      // Still waiting for the second agent
+      // Reconnects and non-starting updates should preserve the existing lifecycle fields.
       await matchRepository.save({ ...existing, participants });
     }
   };
