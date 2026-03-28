@@ -20,8 +20,7 @@ function ActivateForm() {
   const [authError, setAuthError] = useState<string | null>(null);
   const activatedRef = useRef(false);
 
-  const gatewayUrl =
-    process.env['NEXT_PUBLIC_API_BASE_URL'] ?? 'http://localhost:8080';
+  const gatewayUrl = process.env['NEXT_PUBLIC_API_BASE_URL'] ?? 'http://localhost:8080';
 
   const runActivation = async (code: string) => {
     if (!user || activatedRef.current) return;
@@ -128,9 +127,7 @@ function ActivateForm() {
   return (
     <section className="flex flex-col items-center justify-center min-h-[60vh] px-4">
       <div className="w-full max-w-sm bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">
-          Authorize your device
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">Authorize your device</h1>
         <p className="text-sm text-gray-500 mb-6 text-center">
           Enter the code shown in your terminal to connect your CLI.
         </p>
