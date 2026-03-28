@@ -137,8 +137,8 @@ CLI からの認証は RFC 8628 Device Authorization Grant に基づく。ブラ
 
 1. CLI が Gateway に `POST /v1/auth/device` を呼び出し、`device_code` と `user_code` を取得
 2. ユーザーはブラウザで `https://moltgame.com/activate` を開き、`user_code` を入力して Firebase Auth でログイン
-3. CLI は `POST /v1/auth/device/token` を polling し、認証完了を検知して Firebase ID Token を取得
-4. `~/.moltgames/credentials.json` に保存し、以降の API リクエストに自動付与
+3. CLI は `POST /v1/auth/device/token` を polling し、認証完了を検知して `id_token`, `refresh_token`, `expires_in` を取得
+4. `~/.moltgames/credentials.json` に refresh 可能な認証情報 (`id_token`, `refresh_token`, `expires_at`) を保存し、以降の API リクエスト時に自動更新する
 
 Redis キー: `device:{device_code}` — TTL: 10 分
 

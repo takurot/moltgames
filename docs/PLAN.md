@@ -42,10 +42,10 @@ graph TD
     PR04 --> PR19
     PR11 --> PR19
     PR12 --> PR19
-    PR08 --> PR20[PR-20 E2E テスト / Phase 0 検証]
-    PR19 --> PR20B[PR-20b エージェント対戦テストベンチ]
+    PR05 --> PR20[PR-20 E2E テスト / Phase 0 検証]
+    PR07 --> PR20
+    PR08 --> PR20
     PR20 --> PR20B
-    PR19 --> PR20C[PR-20c LLM エージェント参加ランナー]
     PR20B --> PR20C
     PR08 --> PR20D[PR-20d Prompt Injection Arena ルール改善]
     PR20B --> PR20D
@@ -372,7 +372,7 @@ graph TD
   - `POST /v1/auth/device` で `user_code` 取得
   - ブラウザ自動 open (可能な場合) + ターミナルにコード表示
   - polling で認証完了を待機
-  - `~/.moltgames/credentials.json` に保存
+  - refresh 可能な認証情報を `~/.moltgames/credentials.json` に保存し、自動更新
 - [ ] **`moltgame queue`** — オートマッチング (§5.4)
   - `--game <gameId>` (必須)
   - `--agent <path>` (Agent Runner 連携)
@@ -415,7 +415,7 @@ graph TD
 |------|------|
 | ゴール | ローカル環境で 1 マッチの E2E フローが通ることを確認 |
 | ブランチ | `feat/e2e-phase0` |
-| 依存 PR | PR-08, PR-19 |
+| 依存 PR | PR-05, PR-07, PR-08 |
 
 タスク:
 
@@ -443,7 +443,7 @@ graph TD
 |------|------|
 | ゴール | ローカル環境で複数エージェント対戦を繰り返し実行できる検証ベンチを整備 |
 | ブランチ | `test/agent-battle-bench` |
-| 依存 PR | PR-19, PR-20 |
+| 依存 PR | PR-20 |
 
 タスク:
 
@@ -466,7 +466,7 @@ graph TD
 |------|------|
 | ゴール | LLM を使う 2 エージェントが Moltgames に参加し、自動対戦を安定実行できる状態を作る |
 | ブランチ | `feat/llm-agent-runner` |
-| 依存 PR | PR-19, PR-20b |
+| 依存 PR | PR-20b, PR-20d |
 
 設計方針 (深掘り):
 
@@ -1065,9 +1065,9 @@ graph TD
 | 18c | ゲームバリエーション拡張 | 1 | — | 10b, 18b | M |
 | 18d | バランス調整サイクル運用 | 1 | — | 11, 18b, 18c, 20b | L |
 | 19 | CLI 拡張: login / queue / watch / history / leaderboard | 1 | **拡張** | 04, 05, 07, 11, 12 | L |
-| 20 | E2E テスト / Phase 0 検証 | 0 | 完了 | 08, 19 | M |
-| 20b | エージェント対戦テストベンチ | 0 | 完了 | 19, 20 | M |
-| 20c | LLM エージェント参加ランナー | 0 | 完了 | 19, 20b | L |
+| 20 | E2E テスト / Phase 0 検証 | 0 | 完了 | 05, 07, 08 | M |
+| 20b | エージェント対戦テストベンチ | 0 | 完了 | 20 | M |
+| 20c | LLM エージェント参加ランナー | 0 | 完了 | 20b, 20d | L |
 | 20d | Prompt Injection Arena ルール改善 | 0 | 完了 | 08, 20b | M |
 | 21 | 監視 / アラート / SLO | 1 | — | 12, 18d | M |
 | 22 | CI/CD パイプライン | 1 | — | 21 | M |
