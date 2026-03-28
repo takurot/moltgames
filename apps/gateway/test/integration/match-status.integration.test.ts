@@ -237,6 +237,41 @@ describe('Match status lifecycle (Issue #38)', () => {
     expect(body.match.startedAt).toBeDefined();
   });
 
+  it('preserves startedAt when an agent reconnects after the match has started', async () => {
+    const matchRepo = new InMemoryMatchRepository();
+    const app = await startApp(makeEngineClient(), matchRepo);
+
+    const token1 = await issueToken(app, 'match-002-reconnect', 'agent-1');
+    const token2 = await issueToken(app, 'match-002-reconnect', 'agent-2');
+
+    await connectAgent(app, token1);
+    await connectAgent(app, token2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const beforeReconnect = await app.inject({
+      method: 'GET',
+      url: '/v1/matches/match-002-reconnect',
+    });
+
+    expect(beforeReconnect.statusCode).toBe(200);
+    const startedAt = beforeReconnect.json<{ match: { startedAt?: string } }>().match.startedAt;
+    expect(startedAt).toBeDefined();
+
+    const reconnectToken = await issueToken(app, 'match-002-reconnect', 'agent-1');
+    await connectAgent(app, reconnectToken);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const afterReconnect = await app.inject({
+      method: 'GET',
+      url: '/v1/matches/match-002-reconnect',
+    });
+
+    expect(afterReconnect.statusCode).toBe(200);
+    const body = afterReconnect.json<{ match: { status: string; startedAt?: string } }>();
+    expect(body.match.status).toBe('IN_PROGRESS');
+    expect(body.match.startedAt).toBe(startedAt);
+  });
+
   it('match transitions to FINISHED when termination is detected', async () => {
     const matchRepo = new InMemoryMatchRepository();
     const engineClient = makeEngineClient({ terminateOnFirstCall: true });

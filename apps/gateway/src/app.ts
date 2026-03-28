@@ -14,7 +14,7 @@ import {
   type MCPToolDefinition,
   type ToolCallResponse,
 } from '@moltgames/mcp-protocol';
-import type { JsonValue, TurnEvent, TurnEventSeat } from '@moltgames/domain';
+import type { JsonValue, Match, TurnEvent, TurnEventSeat } from '@moltgames/domain';
 import WebSocket, { type RawData } from 'ws';
 
 import {
@@ -54,6 +54,17 @@ import {
   InMemoryMatchRepository,
   type MatchRepository,
 } from './match/repository.js';
+import {
+  FirestoreMatchLifecycleWebhookSubscriptionRepository,
+  MatchLifecycleWebhookService,
+  NoopMatchLifecycleNotifier,
+  type MatchLifecycleNotifier,
+  type MatchLifecycleWebhookOutcome,
+} from './notifications/match-lifecycle-webhooks.js';
+import {
+  LoggingSpectatorLatencyRecorder,
+  type SpectatorLatencyRecorder,
+} from './spectator/latency-recorder.js';
 import { RedisMatchActionRateLimiter } from './websocket/match-action-rate-limiter.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
@@ -114,6 +125,8 @@ export interface AppOptions {
   replayStorage?: ReplayStorage;
   spectatorAccessController?: SpectatorAccessController;
   matchRepository?: MatchRepository;
+  matchLifecycleNotifier?: MatchLifecycleNotifier;
+  spectatorLatencyRecorder?: SpectatorLatencyRecorder;
 }
 
 export interface GatewayEngineClient {
@@ -574,6 +587,16 @@ export const createApp = async (options: AppOptions = {}) => {
   const matchRepository: MatchRepository =
     options.matchRepository ??
     (isTestOrNoFirebase ? new InMemoryMatchRepository() : new FirestoreMatchRepository());
+  const matchLifecycleNotifier =
+    options.matchLifecycleNotifier ??
+    (isTestOrNoFirebase
+      ? new NoopMatchLifecycleNotifier()
+      : new MatchLifecycleWebhookService({
+          subscriptionRepository: new FirestoreMatchLifecycleWebhookSubscriptionRepository(),
+          log: app.log,
+        }));
+  const spectatorLatencyRecorder =
+    options.spectatorLatencyRecorder ?? new LoggingSpectatorLatencyRecorder(app.log);
 
   // Per-match TurnEvent accumulator (in-memory, cleared after replay generation)
   const matchEvents = new Map<string, TurnEvent[]>();
@@ -666,6 +689,18 @@ export const createApp = async (options: AppOptions = {}) => {
 
   const region = process.env.REGION ?? 'us-central1';
 
+  const notifyMatchStarted = (match: Match): void => {
+    void matchLifecycleNotifier.notifyMatchStarted(match).catch((error: unknown) => {
+      app.log.warn({ error, matchId: match.matchId }, 'Failed to notify match.start webhooks');
+    });
+  };
+
+  const notifyMatchEnded = (match: Match, outcome: MatchLifecycleWebhookOutcome): void => {
+    void matchLifecycleNotifier.notifyMatchEnded(match, outcome).catch((error: unknown) => {
+      app.log.warn({ error, matchId: match.matchId }, 'Failed to notify match.end webhooks');
+    });
+  };
+
   const updateMatchOnConnect = async (session: AgentSession): Promise<void> => {
     const { matchId, uid, agentId } = session;
 
@@ -699,29 +734,39 @@ export const createApp = async (options: AppOptions = {}) => {
       (s) => s.matchId === matchId,
     ).length;
 
-    if (connectedCount >= 2) {
-      // Both agents connected — transition to IN_PROGRESS
-      await matchRepository.save({
+    const shouldStartMatch =
+      connectedCount >= 2 &&
+      (existing.status === 'WAITING_AGENT_CONNECT' || existing.status === 'READY');
+
+    if (shouldStartMatch) {
+      // Both agents connected for the first time — transition to IN_PROGRESS
+      const startedMatch: Match = {
         ...existing,
         participants,
         status: 'IN_PROGRESS',
-        startedAt: new Date().toISOString(),
-      });
+        startedAt: existing.startedAt ?? new Date().toISOString(),
+      };
+      await matchRepository.save(startedMatch);
+      notifyMatchStarted(startedMatch);
     } else {
-      // Still waiting for the second agent
+      // Reconnects and non-starting updates should preserve the existing lifecycle fields.
       await matchRepository.save({ ...existing, participants });
     }
   };
 
-  const broadcastToSpectators = (matchId: string, payload: unknown): void => {
+  const broadcastToSpectators = (matchId: string, payload: unknown): number => {
     const spectators = spectatorSessionsByMatch.get(matchId);
     if (!spectators) {
-      return;
+      return 0;
     }
 
+    let count = 0;
     for (const session of spectators.values()) {
       sendJson(session.socket, payload, app.log);
+      count += 1;
     }
+
+    return count;
   };
 
   const broadcastSpectatorEvent = async (matchId: string, event: TurnEvent): Promise<void> => {
@@ -735,10 +780,31 @@ export const createApp = async (options: AppOptions = {}) => {
     }
 
     const [redactedEvent] = applyRedaction([event], gameId);
-    broadcastToSpectators(matchId, {
+    const broadcastStartedAtMs = Date.now();
+    const spectatorCount = broadcastToSpectators(matchId, {
       type: 'match/event',
       event: redactedEvent,
+      sent_at: new Date(broadcastStartedAtMs).toISOString(),
     });
+    const broadcastCompletedAtMs = Date.now();
+
+    if (spectatorCount > 0) {
+      const eventTimestampMs = Date.parse(event.timestamp);
+      const latencyMs = Number.isNaN(eventTimestampMs)
+        ? Math.max(0, broadcastCompletedAtMs - broadcastStartedAtMs)
+        : Math.max(0, broadcastCompletedAtMs - eventTimestampMs);
+      await spectatorLatencyRecorder.record({
+        matchId,
+        eventId: event.eventId,
+        spectatorCount,
+        latencyMs,
+        fanOutDurationMs: Math.max(0, broadcastCompletedAtMs - broadcastStartedAtMs),
+        targetLatencyMs: 200,
+        withinTarget: latencyMs <= 200,
+        eventTimestamp: event.timestamp,
+        recordedAt: new Date(broadcastCompletedAtMs).toISOString(),
+      });
+    }
   };
 
   const queueSpectatorEventBroadcast = (matchId: string, event: TurnEvent): void => {
@@ -964,6 +1030,30 @@ export const createApp = async (options: AppOptions = {}) => {
                 'Failed to update match status to FINISHED',
               );
             });
+
+          const persistedMatch = await matchRepository
+            .get(session.matchId)
+            .catch((error: unknown) => {
+              app.log.warn(
+                { error, matchId: session.matchId },
+                'Failed to load match after finish',
+              );
+              return null;
+            });
+          if (persistedMatch !== null) {
+            notifyMatchEnded(
+              {
+                ...persistedMatch,
+                status: 'FINISHED',
+                endedAt,
+              },
+              {
+                winnerAgentId: termination.winner,
+                winnerUid,
+                reason: termination.reason,
+              },
+            );
+          }
 
           const endedPayload = {
             type: 'match/ended',
@@ -1481,3 +1571,6 @@ export const createApp = async (options: AppOptions = {}) => {
 
   return app;
 };
+
+export type { MatchLifecycleNotifier } from './notifications/match-lifecycle-webhooks.js';
+export type { SpectatorLatencyRecorder } from './spectator/latency-recorder.js';
