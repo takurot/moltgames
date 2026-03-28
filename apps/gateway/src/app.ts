@@ -21,7 +21,11 @@ import {
   ConnectTokenError,
   ConnectTokenService,
   createConnectTokenApi,
+  DeviceAuthError,
+  DeviceAuthService,
   InMemoryConnectTokenSessionStore,
+  InMemoryDeviceAuthSessionStore,
+  RedisDeviceAuthSessionStore,
   type FirebaseIdTokenVerifier,
   type VerifiedFirebaseIdToken,
 } from './index.js';
@@ -54,6 +58,7 @@ import {
   InMemoryMatchRepository,
   type MatchRepository,
 } from './match/repository.js';
+import { listMatchesPage, MatchQueueService } from './matchmaking/queue-service.js';
 import {
   FirestoreMatchLifecycleWebhookSubscriptionRepository,
   MatchLifecycleWebhookService,
@@ -66,6 +71,7 @@ import {
   type SpectatorLatencyRecorder,
 } from './spectator/latency-recorder.js';
 import { RedisMatchActionRateLimiter } from './websocket/match-action-rate-limiter.js';
+import { sendRestApiError } from './api-error.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -130,6 +136,13 @@ export interface AppOptions {
 }
 
 export interface GatewayEngineClient {
+  startMatch?(
+    matchId: string,
+    request: {
+      gameId: string;
+      seed: number;
+    },
+  ): Promise<void>;
   getTools(matchId: string, agentId: string): Promise<MCPToolDefinition[]>;
   callTool(
     matchId: string,
@@ -157,6 +170,15 @@ interface AgentSession {
 
 interface RatingJobQueue {
   enqueue(job: MatchResultJob): Promise<void>;
+}
+
+interface QueueRequestBody {
+  gameId: string;
+  agentId: string;
+  ratingRange?: {
+    min: number;
+    max: number;
+  };
 }
 
 const SUPPORTED_WS_PROTOCOL = 'moltgame.v1';
@@ -222,6 +244,9 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
   const client = new EngineClient({ engineUrl: DEFAULT_ENGINE_URL });
 
   return {
+    startMatch: async (matchId, request) => {
+      await client.post(`/matches/${encodeURIComponent(matchId)}/start`, request);
+    },
     getTools: async (matchId, agentId) => {
       const response = await client.get<{ status: 'ok'; tools: unknown[] }>(
         `/matches/${encodeURIComponent(matchId)}/tools?agentId=${encodeURIComponent(agentId)}`,
@@ -312,6 +337,19 @@ const getBearerToken = (authorizationHeader: string | undefined): string | null 
 
   const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
   return match?.[1] ?? null;
+};
+
+const parsePositiveIntegerQueryValue = (value: string | null, fallback: number): number | null => {
+  if (value === null) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
 };
 
 const isSecretMatch = (actual: string, expected: string): boolean => {
@@ -555,10 +593,18 @@ export const createApp = async (options: AppOptions = {}) => {
     process.env.NODE_ENV === 'test' && !options.redis
       ? new InMemoryConnectTokenSessionStore()
       : new RedisConnectTokenSessionStore(redis);
+  const deviceAuthStore =
+    process.env.NODE_ENV === 'test' && !options.redis
+      ? new InMemoryDeviceAuthSessionStore()
+      : new RedisDeviceAuthSessionStore(redis);
 
   const service = new ConnectTokenService({
     store,
     secret: secret || 'dev-secret',
+  });
+  const deviceAuthService = new DeviceAuthService({
+    store: deviceAuthStore,
+    verificationUri: process.env.DEVICE_AUTH_VERIFICATION_URI ?? 'https://moltgame.com/activate',
   });
 
   const api = createConnectTokenApi({
@@ -597,6 +643,12 @@ export const createApp = async (options: AppOptions = {}) => {
         }));
   const spectatorLatencyRecorder =
     options.spectatorLatencyRecorder ?? new LoggingSpectatorLatencyRecorder(app.log);
+  const matchQueueService = new MatchQueueService({
+    redis,
+    ratingRepository,
+    matchRepository,
+    engineClient,
+  });
 
   // Per-match TurnEvent accumulator (in-memory, cleared after replay generation)
   const matchEvents = new Map<string, TurnEvent[]>();
@@ -736,7 +788,9 @@ export const createApp = async (options: AppOptions = {}) => {
 
     const shouldStartMatch =
       connectedCount >= 2 &&
-      (existing.status === 'WAITING_AGENT_CONNECT' || existing.status === 'READY');
+      (existing.status === 'CREATED' ||
+        existing.status === 'WAITING_AGENT_CONNECT' ||
+        existing.status === 'READY');
 
     if (shouldStartMatch) {
       // Both agents connected for the first time — transition to IN_PROGRESS
@@ -749,8 +803,13 @@ export const createApp = async (options: AppOptions = {}) => {
       await matchRepository.save(startedMatch);
       notifyMatchStarted(startedMatch);
     } else {
+      const nextStatus =
+        connectedCount === 1 && existing.status === 'CREATED'
+          ? ('WAITING_AGENT_CONNECT' as const)
+          : existing.status;
+
       // Reconnects and non-starting updates should preserve the existing lifecycle fields.
-      await matchRepository.save({ ...existing, participants });
+      await matchRepository.save({ ...existing, participants, status: nextStatus });
     }
   };
 
@@ -1144,8 +1203,227 @@ export const createApp = async (options: AppOptions = {}) => {
     }
   };
 
+  const authenticateRestRequest = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<VerifiedFirebaseIdToken | null> => {
+    const authorizationHeader =
+      typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined;
+    const bearerToken = getBearerToken(authorizationHeader);
+
+    if (bearerToken === null) {
+      sendRestApiError(reply, 401, 'UNAUTHORIZED', 'Authorization header is missing');
+      return null;
+    }
+
+    try {
+      return await verifier.verifyIdToken(bearerToken);
+    } catch {
+      sendRestApiError(reply, 401, 'UNAUTHORIZED', 'Invalid Firebase ID token');
+      return null;
+    }
+  };
+
+  const allowQueueMutation = async (uid: string): Promise<boolean> => {
+    const key = `moltgames:queue-rate:${uid}`;
+    const pipeline = redis.pipeline();
+    pipeline.incr(key);
+    pipeline.expire(key, 60);
+    const results = await pipeline.exec();
+    const count = results?.[0]?.[1] as number | null;
+    return (count ?? 1) <= 10;
+  };
+
   app.post('/v1/tokens', handleConnectTokenRequest);
   app.delete('/v1/tokens/:tokenId', handleConnectTokenRequest);
+
+  app.post('/v1/auth/device', async (_request, reply) => {
+    const result = await deviceAuthService.issueAuthorization();
+    reply.status(201).send({
+      device_code: result.deviceCode,
+      user_code: result.userCode,
+      verification_uri: result.verificationUri,
+      expires_in: result.expiresIn,
+      interval: result.interval,
+    });
+  });
+
+  app.post<{
+    Body: { device_code?: string };
+  }>('/v1/auth/device/token', async (request, reply) => {
+    const deviceCode =
+      typeof request.body?.device_code === 'string' ? request.body.device_code : null;
+
+    if (deviceCode === null || deviceCode.length === 0) {
+      sendRestApiError(reply, 400, 'INVALID_REQUEST', 'device_code is required');
+      return;
+    }
+
+    try {
+      const result = await deviceAuthService.exchangeToken(deviceCode);
+      return {
+        id_token: result.idToken,
+        refresh_token: result.refreshToken,
+        expires_in: result.expiresIn,
+        token_type: result.tokenType,
+      };
+    } catch (error) {
+      if (error instanceof DeviceAuthError) {
+        switch (error.code) {
+          case 'AUTHORIZATION_PENDING':
+            sendRestApiError(reply, 428, error.code, error.message, true);
+            return;
+          case 'AUTHORIZATION_ALREADY_CONSUMED':
+            sendRestApiError(reply, 400, error.code, error.message);
+            return;
+          case 'EXPIRED_TOKEN':
+            sendRestApiError(reply, 410, error.code, error.message);
+            return;
+          case 'NOT_FOUND':
+            sendRestApiError(reply, 404, error.code, error.message);
+            return;
+          case 'INVALID_REQUEST':
+            sendRestApiError(reply, 400, error.code, error.message);
+            return;
+        }
+      }
+
+      request.log.error({ error }, 'Failed to exchange device auth token');
+      sendRestApiError(reply, 503, 'SERVICE_UNAVAILABLE', 'Service unavailable', true);
+    }
+  });
+
+  app.post<{
+    Body: {
+      userCode?: string;
+      refreshToken?: string;
+      expiresIn?: number;
+    };
+  }>('/v1/auth/device/activate', async (request, reply) => {
+    const claims = await authenticateRestRequest(request, reply);
+    if (claims === null) {
+      return;
+    }
+
+    const { userCode, refreshToken, expiresIn } = request.body ?? {};
+
+    if (
+      typeof userCode !== 'string' ||
+      typeof refreshToken !== 'string' ||
+      typeof expiresIn !== 'number' ||
+      !Number.isInteger(expiresIn)
+    ) {
+      sendRestApiError(
+        reply,
+        400,
+        'INVALID_REQUEST',
+        'userCode, refreshToken, and expiresIn are required',
+      );
+      return;
+    }
+
+    // idToken is guaranteed non-null here: authenticateRestRequest already verified the bearer token.
+    const idToken = getBearerToken(request.headers.authorization as string) as string;
+
+    try {
+      await deviceAuthService.activateAuthorization({
+        userCode,
+        uid: claims.uid,
+        idToken,
+        refreshToken,
+        expiresIn,
+      });
+      reply.status(204).send();
+    } catch (error) {
+      if (error instanceof DeviceAuthError) {
+        switch (error.code) {
+          case 'NOT_FOUND':
+            sendRestApiError(reply, 404, error.code, error.message);
+            return;
+          case 'EXPIRED_TOKEN':
+            sendRestApiError(reply, 410, error.code, error.message);
+            return;
+          case 'AUTHORIZATION_ALREADY_CONSUMED':
+          case 'INVALID_REQUEST':
+            sendRestApiError(reply, 400, error.code, error.message);
+            return;
+          case 'AUTHORIZATION_PENDING':
+            sendRestApiError(reply, 428, error.code, error.message, true);
+            return;
+        }
+      }
+
+      request.log.error({ error }, 'Failed to activate device auth session');
+      sendRestApiError(reply, 503, 'SERVICE_UNAVAILABLE', 'Service unavailable', true);
+    }
+  });
+
+  app.post<{ Body: QueueRequestBody }>('/v1/matches/queue', async (request, reply) => {
+    const claims = await authenticateRestRequest(request, reply);
+    if (claims === null) {
+      return;
+    }
+
+    if (!(await allowQueueMutation(claims.uid))) {
+      sendRestApiError(reply, 429, 'RATE_LIMITED', 'Queue rate limit exceeded', true);
+      return;
+    }
+
+    try {
+      const status = await matchQueueService.enqueue({
+        uid: claims.uid,
+        gameId: request.body.gameId,
+        agentId: request.body.agentId,
+        ...(request.body.ratingRange === undefined
+          ? {}
+          : { ratingRange: request.body.ratingRange }),
+      });
+
+      reply.status(status.status === 'MATCHED' ? 201 : 202).send(status);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to enqueue match request';
+      sendRestApiError(reply, 400, 'INVALID_REQUEST', message);
+    }
+  });
+
+  app.delete('/v1/matches/queue', async (request, reply) => {
+    const claims = await authenticateRestRequest(request, reply);
+    if (claims === null) {
+      return;
+    }
+
+    const query = request.query as Record<string, unknown>;
+    const gameId = getQueryStringValue(query.gameId);
+    if (gameId === null) {
+      sendRestApiError(reply, 400, 'INVALID_REQUEST', 'gameId is required');
+      return;
+    }
+
+    await matchQueueService.leave(claims.uid, gameId);
+    reply.status(204).send();
+  });
+
+  app.get('/v1/matches/queue/status', async (request, reply) => {
+    const claims = await authenticateRestRequest(request, reply);
+    if (claims === null) {
+      return;
+    }
+
+    const query = request.query as Record<string, unknown>;
+    const gameId = getQueryStringValue(query.gameId);
+    if (gameId === null) {
+      sendRestApiError(reply, 400, 'INVALID_REQUEST', 'gameId is required');
+      return;
+    }
+
+    const status = await matchQueueService.getStatus(claims.uid, gameId);
+    if (status === null) {
+      sendRestApiError(reply, 404, 'NOT_FOUND', 'Queue entry was not found');
+      return;
+    }
+
+    return status;
+  });
 
   app.post<{
     Body: { matchId: string; participants: string[]; winnerUid?: string | null; endedAt: string };
@@ -1206,6 +1484,37 @@ export const createApp = async (options: AppOptions = {}) => {
       return { status: 'ok', leaderboard };
     },
   );
+
+  app.get('/v1/matches', async (request, reply) => {
+    const claims = await authenticateRestRequest(request, reply);
+    if (claims === null) {
+      return;
+    }
+
+    const query = request.query as Record<string, unknown>;
+    const agentId = getQueryStringValue(query.agentId) ?? undefined;
+    const cursor = getQueryStringValue(query.cursor) ?? undefined;
+    const limitValue = parsePositiveIntegerQueryValue(getQueryStringValue(query.limit), 100);
+
+    if (limitValue === null || limitValue > 100) {
+      sendRestApiError(reply, 400, 'INVALID_REQUEST', 'limit must be between 1 and 100');
+      return;
+    }
+
+    try {
+      const matches = await matchRepository.listByParticipant(claims.uid, agentId);
+      return listMatchesPage(matches, limitValue, cursor);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to list matches';
+      if (message === 'Invalid cursor') {
+        sendRestApiError(reply, 400, 'INVALID_REQUEST', message);
+        return;
+      }
+
+      request.log.error({ error }, 'Failed to list matches');
+      sendRestApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to list matches');
+    }
+  });
 
   app.get<{ Params: { matchId: string } }>('/v1/matches/:matchId', async (request, reply) => {
     const { matchId } = request.params;
