@@ -10,12 +10,19 @@ import type { RatingRepository } from '../rating/repository.js';
 const MATCH_QUEUE_KEY_PREFIX = 'moltgames:queue:';
 const MATCH_QUEUE_ENTRY_KEY_PREFIX = 'moltgames:queue-entry:';
 const MATCH_QUEUE_ACTIVE_KEY_PREFIX = 'moltgames:queue-active:';
+const MATCH_QUEUE_LOCK_KEY_PREFIX = 'moltgames:queue-lock:';
 const DEFAULT_MATCH_REGION = 'us-central1';
 const DEFAULT_STARTING_ELO = 1500;
 const INITIAL_RATING_WINDOW = 200;
 const EXPANDED_RATING_WINDOW = 400;
 const EXPANSION_THRESHOLD_SECONDS = 30;
 const SECOND_EXPANSION_THRESHOLD_SECONDS = 60;
+// TTL for entries still waiting in the queue (24 hours)
+export const QUEUE_ENTRY_TTL_SECONDS = 24 * 60 * 60;
+// TTL for entries that have been matched (1 hour — enough time for agents to connect)
+export const MATCHED_ENTRY_TTL_SECONDS = 60 * 60;
+// Lock TTL for processQueue to prevent concurrent matchmaking for the same game
+const QUEUE_LOCK_TTL_SECONDS = 10;
 
 export interface QueueClock {
   now(): Date;
@@ -223,8 +230,18 @@ export class MatchQueueService {
     };
 
     const pipeline = this.#redis.pipeline();
-    pipeline.set(this.#entryKey(entry.entryId), JSON.stringify(entry));
-    pipeline.set(this.#activeKey(entry.uid, entry.gameId), entry.entryId);
+    pipeline.set(
+      this.#entryKey(entry.entryId),
+      JSON.stringify(entry),
+      'EX',
+      QUEUE_ENTRY_TTL_SECONDS,
+    );
+    pipeline.set(
+      this.#activeKey(entry.uid, entry.gameId),
+      entry.entryId,
+      'EX',
+      QUEUE_ENTRY_TTL_SECONDS,
+    );
     pipeline.rpush(this.#queueKey(entry.gameId), entry.entryId);
     await pipeline.exec();
 
@@ -257,47 +274,58 @@ export class MatchQueueService {
   }
 
   async processQueue(gameId: string): Promise<void> {
-    const entries = await this.#listQueuedEntries(gameId);
-    const matchedEntryIds = new Set<string>();
-    const nowMs = this.#clock.now().getTime();
+    const lockKey = `${MATCH_QUEUE_LOCK_KEY_PREFIX}${gameId}`;
+    const acquired = await this.#redis.set(lockKey, '1', 'EX', QUEUE_LOCK_TTL_SECONDS, 'NX');
+    if (acquired === null) {
+      // Another process is already running matchmaking for this game
+      return;
+    }
 
-    for (let index = 0; index < entries.length; index += 1) {
-      const current = entries[index];
-      if (current === undefined || matchedEntryIds.has(current.entryId)) {
-        continue;
-      }
+    try {
+      const entries = await this.#listQueuedEntries(gameId);
+      const matchedEntryIds = new Set<string>();
+      const nowMs = this.#clock.now().getTime();
 
-      let bestCandidate: MatchQueueEntry | null = null;
-      let bestDiff = Number.POSITIVE_INFINITY;
-
-      for (let candidateIndex = index + 1; candidateIndex < entries.length; candidateIndex += 1) {
-        const candidate = entries[candidateIndex];
-        if (candidate === undefined || matchedEntryIds.has(candidate.entryId)) {
+      for (let index = 0; index < entries.length; index += 1) {
+        const current = entries[index];
+        if (current === undefined || matchedEntryIds.has(current.entryId)) {
           continue;
         }
 
-        if (!canEntriesMatch(current, candidate, nowMs)) {
+        let bestCandidate: MatchQueueEntry | null = null;
+        let bestDiff = Number.POSITIVE_INFINITY;
+
+        for (let candidateIndex = index + 1; candidateIndex < entries.length; candidateIndex += 1) {
+          const candidate = entries[candidateIndex];
+          if (candidate === undefined || matchedEntryIds.has(candidate.entryId)) {
+            continue;
+          }
+
+          if (!canEntriesMatch(current, candidate, nowMs)) {
+            continue;
+          }
+
+          const diff = Math.abs(current.rating - candidate.rating);
+          if (
+            bestCandidate === null ||
+            diff < bestDiff ||
+            (diff === bestDiff && candidate.queuedAtMs < bestCandidate.queuedAtMs)
+          ) {
+            bestCandidate = candidate;
+            bestDiff = diff;
+          }
+        }
+
+        if (bestCandidate === null) {
           continue;
         }
 
-        const diff = Math.abs(current.rating - candidate.rating);
-        if (
-          bestCandidate === null ||
-          diff < bestDiff ||
-          (diff === bestDiff && candidate.queuedAtMs < bestCandidate.queuedAtMs)
-        ) {
-          bestCandidate = candidate;
-          bestDiff = diff;
-        }
+        await this.#createMatch(current, bestCandidate);
+        matchedEntryIds.add(current.entryId);
+        matchedEntryIds.add(bestCandidate.entryId);
       }
-
-      if (bestCandidate === null) {
-        continue;
-      }
-
-      await this.#createMatch(current, bestCandidate);
-      matchedEntryIds.add(current.entryId);
-      matchedEntryIds.add(bestCandidate.entryId);
+    } finally {
+      await this.#redis.del(lockKey);
     }
   }
 
@@ -394,8 +422,30 @@ export class MatchQueueService {
     };
 
     const pipeline = this.#redis.pipeline();
-    pipeline.set(this.#entryKey(left.entryId), JSON.stringify(leftMatched));
-    pipeline.set(this.#entryKey(right.entryId), JSON.stringify(rightMatched));
+    pipeline.set(
+      this.#entryKey(left.entryId),
+      JSON.stringify(leftMatched),
+      'EX',
+      MATCHED_ENTRY_TTL_SECONDS,
+    );
+    pipeline.set(
+      this.#entryKey(right.entryId),
+      JSON.stringify(rightMatched),
+      'EX',
+      MATCHED_ENTRY_TTL_SECONDS,
+    );
+    pipeline.set(
+      this.#activeKey(left.uid, left.gameId),
+      left.entryId,
+      'EX',
+      MATCHED_ENTRY_TTL_SECONDS,
+    );
+    pipeline.set(
+      this.#activeKey(right.uid, right.gameId),
+      right.entryId,
+      'EX',
+      MATCHED_ENTRY_TTL_SECONDS,
+    );
     pipeline.lrem(this.#queueKey(left.gameId), 0, left.entryId);
     pipeline.lrem(this.#queueKey(right.gameId), 0, right.entryId);
     await pipeline.exec();

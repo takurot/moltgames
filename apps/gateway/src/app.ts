@@ -1226,11 +1226,12 @@ export const createApp = async (options: AppOptions = {}) => {
 
   const allowQueueMutation = async (uid: string): Promise<boolean> => {
     const key = `moltgames:queue-rate:${uid}`;
-    const count = await redis.incr(key);
-    if (count === 1) {
-      await redis.expire(key, 60);
-    }
-    return count <= 10;
+    const pipeline = redis.pipeline();
+    pipeline.incr(key);
+    pipeline.expire(key, 60);
+    const results = await pipeline.exec();
+    const count = results?.[0]?.[1] as number | null;
+    return (count ?? 1) <= 10;
   };
 
   app.post('/v1/tokens', handleConnectTokenRequest);
@@ -1304,9 +1305,6 @@ export const createApp = async (options: AppOptions = {}) => {
       return;
     }
 
-    const authorizationHeader =
-      typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined;
-    const idToken = getBearerToken(authorizationHeader);
     const { userCode, refreshToken, expiresIn } = request.body ?? {};
 
     if (
@@ -1324,10 +1322,8 @@ export const createApp = async (options: AppOptions = {}) => {
       return;
     }
 
-    if (idToken === null) {
-      sendRestApiError(reply, 401, 'UNAUTHORIZED', 'Authorization header is missing');
-      return;
-    }
+    // idToken is guaranteed non-null here: authenticateRestRequest already verified the bearer token.
+    const idToken = getBearerToken(request.headers.authorization as string) as string;
 
     try {
       await deviceAuthService.activateAuthorization({

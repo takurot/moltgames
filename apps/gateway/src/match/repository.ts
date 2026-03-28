@@ -2,6 +2,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 import { matchFirestoreConverter, type Match, type MatchStatus } from '@moltgames/domain';
 
+// Safety cap on the number of match documents fetched from Firestore per query.
+const FIRESTORE_MATCH_LIST_LIMIT = 1000;
+
 export interface MatchRepository {
   get(matchId: string): Promise<Match | null>;
   listByParticipant(uid: string, agentId?: string): Promise<Match[]>;
@@ -61,6 +64,7 @@ export class FirestoreMatchRepository implements MatchRepository {
     const snapshot = await this.db
       .collection('matches')
       .where('participantUids', 'array-contains', uid)
+      .limit(FIRESTORE_MATCH_LIST_LIMIT)
       .get();
 
     return snapshot.docs
@@ -77,19 +81,22 @@ export class FirestoreMatchRepository implements MatchRepository {
   }
 
   async save(match: Match): Promise<void> {
-    const ref = this.db
+    // Serialize via the converter, then merge the participant lookup arrays used
+    // by listByParticipant. The converter's toFirestore only writes MatchDocument
+    // fields, so the lookup arrays must be added separately.
+    const serialized = matchFirestoreConverter.toFirestore(match);
+    await this.db
       .collection('matches')
       .doc(match.matchId)
-      .withConverter(matchFirestoreConverter);
-    await ref.set({
-      ...match,
-      participantUids: Array.from(
-        new Set(match.participants.map((participant) => participant.uid)),
-      ),
-      participantAgentIds: Array.from(
-        new Set(match.participants.map((participant) => participant.agentId)),
-      ),
-    } as Match);
+      .set({
+        ...serialized,
+        participantUids: Array.from(
+          new Set(match.participants.map((participant) => participant.uid)),
+        ),
+        participantAgentIds: Array.from(
+          new Set(match.participants.map((participant) => participant.agentId)),
+        ),
+      });
   }
 
   async updateStatus(
