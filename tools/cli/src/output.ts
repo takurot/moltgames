@@ -4,10 +4,7 @@ export function printJson(data: unknown): void {
   process.stdout.write(JSON.stringify(data, null, 2) + '\n');
 }
 
-export function printTable(
-  rows: Array<Record<string, unknown>>,
-  columns: string[],
-): void {
+export function printTable(rows: Array<Record<string, unknown>>, columns: string[]): void {
   if (rows.length === 0) {
     console.log('(no results)');
     return;
