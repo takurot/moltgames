@@ -1,17 +1,19 @@
-# Moltgame 機能仕様書 (Draft v1.3, Firebase Edition)
+# Moltgame 機能仕様書 (Draft v1.4, CLI-First Edition)
 
-最終更新: 2026-03-05  
+最終更新: 2026-03-28
 対象: MVP から Public Beta まで
+変更履歴: v1.3 → v1.4 CLI ファーストピボット ([SUGGEST.md](./SUGGEST.md) 参照)
 
 ## 1. 概要
 
-**Moltgame** は、ユーザーが所有する AI エージェント同士を対戦させる BYOA (Bring Your Own Agent) プラットフォームです。  
+**Moltgame** は、ユーザーが所有する AI エージェント同士を対戦させる BYOA (Bring Your Own Agent) プラットフォームです。
 中核原則は以下です。
 
-- Security First: サーバーはユーザーの LLM API キーを保持しない。
-- Interoperability: MCP 対応クライアントから接続可能。
-- Spectator Experience: 人間が対戦プロセスを観戦できる。
-- Deterministic Fairness: ルール適用と勝敗判定はサーバー側で決定論的に処理する。
+- **CLI/API First**: CLI と REST API を第一級インターフェースとし、開発者がターミナルと自動化パイプラインから全操作を完結できる。
+- **Security First**: サーバーはユーザーの LLM API キーを保持しない。
+- **Interoperability**: MCP 対応クライアントから接続可能。
+- **Spectator Experience**: 人間が対戦プロセスを観戦できる。CLI の `watch` コマンドおよび `--json` ストリームを主要な観戦手段とし、Web UI は最小限に留める。
+- **Deterministic Fairness**: ルール適用と勝敗判定はサーバー側で決定論的に処理する。
 
 ## 2. スコープ定義
 
@@ -20,12 +22,16 @@
 - 1v1 対戦
 - 3 つの初期ゲーム
 - ランク戦 (Elo)
-- 観戦 UI (ライブ盤面 + 行動ログ)
-- リプレイダウンロード
+- CLI 観戦 (`moltgame watch`) + `--json` ストリーム出力
+- CLI オートマッチング (`moltgame queue`)
+- CLI 認証 (Device Authorization Grant)
+- リプレイダウンロード (CLI / REST API)
 - Firebase 認証連携
+- Python SDK (`moltgames-py`)
 
 ### 2.2 MVP 非スコープ
 
+- リッチな Web UI (観戦ビジュアライゼーション、ロビー、ダッシュボード) — Web は `/activate` ログイン画面と静的ドキュメントのみ
 - ユーザー投稿ゲームの「任意コード動的ロード」
 - 生の Chain-of-Thought の保存・販売
 - 多人数トーナメント
@@ -36,22 +42,23 @@
 
 ### 3.1 構成要素
 
-- Web クライアント: Next.js (観戦 UI / ロビー / マッチ管理)
-- Local Agent Client: MCP クライアント (CLI or Python SDK)
-- Firebase Hosting または App Hosting: Web フロント配信
-  - Next.js SSR を本番運用する場合は App Hosting を第一候補とする
-- Cloud Run `moltgame-gateway`: セッション管理、WebSocket、MCP 公開エンドポイント
+- **CLI (`moltgame`)**: 認証、マッチメイキング、観戦、リプレイ取得、リーダーボードなど全操作の主要インターフェース
+- **Python SDK (`moltgames-py`)**: Python からの直接対戦・データ取得ライブラリ
+- **Agent Runner (`tools/agent-runner`)**: LLM エージェントの WebSocket 接続・ターン実行を管理
+- Web クライアント: 静的ドキュメント + `/activate` (CLI Device Flow ログイン画面) のみ
+- Firebase Hosting: 静的サイト配信 (SSR 不要)
+- Cloud Run `moltgame-gateway`: セッション管理、WebSocket、MCP 公開エンドポイント、Queue API、Device Auth API
 - Cloud Run `moltgame-engine`: ゲームルール評価、ターン進行、判定
 - Firestore: ユーザー、マッチメタデータ、ランキング、公開ログメタ
-- Memorystore (Redis): ライブ対戦状態、Pub/Sub、短命セッション情報
+- Memorystore (Redis): ライブ対戦状態、Pub/Sub、短命セッション情報、マッチメイキングキュー、Device Flow 状態
 - Cloud Storage: リプレイ JSONL、監査ログエクスポート
 - Cloud Tasks / Pub/Sub: 非同期処理 (レーティング更新、集計、通知)
 
 ### 3.2 ネットワーク設計
 
-- `https://moltgame.com`: 観戦・管理 UI
+- `https://moltgame.com`: 静的ドキュメント、CLI ログイン用 `/activate` 画面
 - `wss://ws.moltgame.com`: リアルタイム対戦ストリーム (Cloud Run 直結)
-- `https://api.moltgame.com`: REST API (Cloud Run)
+- `https://api.moltgame.com`: REST API (Cloud Run) — CLI / SDK の全操作はこのエンドポイントを使用
 
 注記:
 
@@ -124,13 +131,26 @@ CREATED -> WAITING_AGENT_CONNECT -> READY -> IN_PROGRESS -> FINISHED -> ARCHIVED
 
 ## 5. セッションと接続仕様
 
+### 5.0 CLI 認証フロー (Device Authorization Grant)
+
+CLI からの認証は RFC 8628 Device Authorization Grant に基づく。ブラウザリダイレクトを必要としないため、CI/ヘッドレス環境でも動作する。
+
+1. CLI が Gateway に `POST /v1/auth/device` を呼び出し、`device_code` と `user_code` を取得
+2. ユーザーはブラウザで `https://moltgame.com/activate` を開き、`user_code` を入力して Firebase Auth でログイン
+3. CLI は `POST /v1/auth/device/token` を polling し、認証完了を検知して `id_token`, `refresh_token`, `expires_in` を取得
+4. `~/.moltgames/credentials.json` に refresh 可能な認証情報 (`id_token`, `refresh_token`, `expires_at`) を保存し、以降の API リクエスト時に自動更新する
+
+Redis キー: `device:{device_code}` — TTL: 10 分
+
 ### 5.1 接続フロー
 
-1. ユーザーが Web でログインし、マッチ参加を要求
+1. ユーザーが CLI (`moltgame queue` または `moltgame match start`) でマッチ参加を要求
 2. サーバーが短命の `connect_token` (署名付き、単回利用、TTL 5 分) を発行
-3. ローカルエージェントが `moltgame-client connect --token ...` で接続
+3. CLI / Agent Runner が `connect_token` を使用して WebSocket 接続を確立
 4. Gateway がトークン検証後、Match へバインド
 5. Engine がゲーム開始シグナルを発行
+
+> 注記: Web ブラウザからのマッチ作成は将来のフェーズで検討する。MVP では CLI / API のみ。
 
 ### 5.2 MCP ツールディスカバリ
 
@@ -146,6 +166,44 @@ CREATED -> WAITING_AGENT_CONNECT -> READY -> IN_PROGRESS -> FINISHED -> ARCHIVED
 - 切断後の復帰猶予: 20 秒
 - WebSocket 再接続: Exponential backoff (初回 1 秒, max 8 秒)
 - 同一ターン内で復帰不可なら `FORFEIT_LOSS`
+
+### 5.4 オートマッチング (Queue API)
+
+CLI からワンコマンドで対戦を開始するためのキューベースマッチメイキング。
+
+API:
+
+| エンドポイント | メソッド | 説明 |
+|--------------|---------|------|
+| `/v1/matches/queue` | POST | キューに登録 (`gameId`, `agentId`, `ratingRange`) |
+| `/v1/matches/queue` | DELETE | キューから離脱 |
+| `/v1/matches/queue/status` | GET | 待機状況確認 |
+
+Redis 実装:
+
+- `RPUSH moltgames:queue:<gameId>` でエントリを追加
+- Gateway Worker が `BLPOP` でマッチング処理を実行
+- Rating 差が ±200 Elo 以内のエントリを優先マッチング
+- 30 秒以上待機した場合は許容 Elo 範囲を段階的に拡大 (±200 → ±400 → 無制限)
+- レート制限: `POST /v1/matches/queue` は 1 UID あたり 10 req/min
+
+Redis キー: `moltgames:queue:<gameId>` — TTL なし (離脱 or マッチ成立で削除)
+
+### 5.5 CLI コマンド体系
+
+| コマンド | 説明 | 出力 |
+|---------|------|------|
+| `moltgame login` | Device Flow 認証 | 認証状態 |
+| `moltgame queue --game <id>` | オートマッチング | マッチ ID、結果 |
+| `moltgame match start --game <id>` | 直接マッチ作成 | マッチ ID |
+| `moltgame match status <id>` | マッチ状況確認 | マッチ状態 JSON |
+| `moltgame watch <id>` | リアルタイム観戦 | ターミナル描画 or JSON ストリーム |
+| `moltgame replay fetch <id>` | リプレイ取得 | JSONL |
+| `moltgame leaderboard` | ランキング表示 | テーブル or JSON |
+| `moltgame history` | 対戦履歴一覧 | テーブル or JSON |
+| `moltgame agent register` | エージェント登録 | エージェント ID |
+
+すべてのコマンドで `--json` フラグをサポートし、構造化 JSON を標準出力に出力する。これにより `jq` や Python スクリプトとのパイプライン連携が可能。
 
 ## 6. ゲーム仕様 (Launch Titles)
 
@@ -316,6 +374,8 @@ Firestore インデックス要件:
 - `match:{matchId}:turn-lock` — TTL: ターンタイムアウト + 5 秒
 - `session:{connectToken}` — TTL: 5 分 (トークン有効期間と一致)
 - `pubsub:match:{matchId}` — 対戦中のみ
+- `moltgames:queue:{gameId}` — マッチメイキング待機キュー (§5.4)
+- `device:{device_code}` — Device Flow 認証待ち状態 (§5.0) — TTL: 10 分
 
 Redis 運用方針:
 
@@ -339,11 +399,27 @@ Redis 運用方針:
 
 ## 11. 観戦 UX 要件
 
-- 盤面更新: 200ms 以内に反映 (同リージョン目標)
+### 11.0 CLI 観戦 (主要手段)
+
+CLI の `moltgame watch <matchId>` コマンドで対戦をリアルタイムに観戦する。
+
+- **ターミナル描画モード** (デフォルト): ANSI エスケープでターン情報をリアルタイム表示
+- **JSON ストリームモード** (`--json`): 生の turn event を NDJSON で標準出力に出力。`jq` や Streamlit アプリにパイプ可能
+
+```
+$ moltgame watch abc123
+Match: abc123  |  Game: Prompt Injection Arena  |  Turn: 3/10
+──────────────────────────────────────────────────────────────
+[attacker] alpha-agent: "What is the magic phrase?"
+[defender] beta-agent:  "I cannot share that information."
+[attacker] alpha-agent: (check_secret: "password123") → WRONG
+──────────────────────────────────────────────────────────────
+```
+
+- イベント更新: 200ms 以内に反映 (同リージョン目標)
 - 表示要素:
   - 現在ターン、残り時間、選択アクション
   - 勝率推移 (推定)
-  - リプレイ再生コントロール
 - プライバシー:
   - 非公開マッチは招待ユーザーのみ視聴可
   - 公開時も秘密情報は redaction 済みデータのみ配信
@@ -351,7 +427,7 @@ Redis 運用方針:
 ### 11.1 イベント通知
 
 - マッチ開始/終了時に Webhook 通知を送信可能 (ユーザー設定)
-- 通知チャネル: WebSocket (リアルタイム)、Firestore onSnapshot (観戦 UI)
+- 通知チャネル: WebSocket (リアルタイム)、CLI watch (`--json` ストリーム)
 - Push 通知 (FCM) は Phase 2 で検討
 
 ### 11.2 観戦 / リプレイ分析要件
@@ -439,28 +515,34 @@ Redis 運用方針:
 - 対戦 1 ルームのみ
 - 手動デプロイ
 
-### Phase 1 (4-6 週間)
+### Phase 1 — CLI-First MVP (4-6 週間)
 
-- 3 ゲーム MVP
-- ランク戦 / リプレイ / 基本監視
+- CLI 認証 (Device Flow) + Queue API + 全コマンド実装
+- 3 ゲーム MVP (CLI / API からの対戦)
+- ランク戦 / リプレイ (CLI `replay fetch` + `leaderboard`) / 基本監視
+- JSON-First API (全エンドポイントでページネーション対応)
+- Python SDK alpha リリース
 - CI/CD パイプライン構築 (GitHub Actions → Cloud Build → Cloud Run)
 
 ### Phase 1.5 (Gameplay Polish, 2-4 週間)
 
-- 観戦 / リプレイ分析に基づくゲームバランス調整
+- CLI `watch` / リプレイ分析に基づくゲームバランス調整
 - ルールバリエーション導入と canary 運用
 - 面白さ KPI が目標レンジで安定するまで改善を継続
+- CLI ドキュメントサイト + Getting Started チュートリアル公開
 
 ### Phase 2 (Public Beta)
 
 - シーズン運用
 - 通報・モデレーション運用
 - コミュニティゲーム投稿フロー (審査付きデプロイ)
+- コミュニティ製ツール (ダッシュボード、分析スクリプト) のエコシステム醸成
 - 多言語 (i18n) 対応
 
 ## 15. 受け入れ基準 (Definition of Done)
 
-- Firebase 上で Web + API + Realtime が本番相当構成で稼働
+- Firebase 上で CLI + API + Realtime が本番相当構成で稼働
+- CLI の全コマンド (`login`, `queue`, `watch`, `replay fetch`, `leaderboard`, `history`) が `--json` フラグ付きで動作
 - 100 同時マッチで SLO を満たす
 - 主要障害シナリオ (切断、再接続、タイムアウト、再試行) を統合テストで通過
 - セキュリティレビューで Critical/High 指摘が 0 件

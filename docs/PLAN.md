@@ -1,7 +1,8 @@
 # Moltgame 実装計画 (PR 分割)
 
-最終更新: 2026-03-05  
-ベース仕様: [SPEC.md](./SPEC.md) v1.3
+最終更新: 2026-03-28
+ベース仕様: [SPEC.md](./SPEC.md) v1.4 (CLI-First Edition)
+変更履歴: CLI ファーストピボットに伴い PR-14〜18 のスコープを縮小・凍結し、PR-19 を拡張、新規 PR を追加 ([SUGGEST.md](./SUGGEST.md) 参照)
 
 ---
 
@@ -19,7 +20,7 @@ graph TD
     PR01[PR-01 リポジトリ初期化] --> PR02[PR-02 Firebase / GCP 基盤]
     PR02 --> PR03[PR-03 ドメインモデル]
     PR02 --> PR04[PR-04 認証 / トークン]
-    PR03 --> PR05[PR-05 Gateway 基盤]
+    PR03 --> PR05[PR-05 Gateway 基盤 + Queue API]
     PR04 --> PR05
     PR03 --> PR06[PR-06 Engine 基盤]
     PR05 --> PR07[PR-07 WebSocket / MCP 接続]
@@ -35,40 +36,48 @@ graph TD
     PR09 --> PR12
     PR10 --> PR12
     PR05 --> PR13[PR-13 観戦 WebSocket 配信]
-    PR02 --> PR14[PR-14 Next.js フロント基盤]
-    PR14 --> PR15[PR-15 ロビー / マッチメイキング UI]
-    PR13 --> PR16[PR-16 観戦 UI]
-    PR12 --> PR17[PR-17 リプレイ再生 UI]
-    PR11 --> PR18[PR-18 リーダーボード UI]
-    PR12 --> PR18B[PR-18b 面白さKPI基盤]
-    PR13 --> PR18B
-    PR16 --> PR18B
-    PR17 --> PR18B
-    PR10B --> PR18C[PR-18c ゲームバリエーション拡張]
-    PR18B --> PR18C
-    PR20B --> PR18D[PR-18d バランス調整サイクル]
-    PR11 --> PR18D
-    PR18 --> PR18D
-    PR18B --> PR18D
-    PR18C --> PR18D
-    PR07 --> PR19[PR-19 Agent CLI / SDK]
-    PR08 --> PR20[PR-20 E2E テスト / Phase 0 検証]
-    PR19 --> PR20B[PR-20b エージェント対戦テストベンチ]
+    PR02 --> PR14[PR-14 静的サイト + /activate]
+    PR07 --> PR19[PR-19 CLI 拡張: login / queue / watch / history / leaderboard]
+    PR05 --> PR19
+    PR04 --> PR19
+    PR11 --> PR19
+    PR12 --> PR19
+    PR05 --> PR20[PR-20 E2E テスト / Phase 0 検証]
+    PR07 --> PR20
+    PR08 --> PR20
     PR20 --> PR20B
-    PR19 --> PR20C[PR-20c LLM エージェント参加ランナー]
     PR20B --> PR20C
     PR08 --> PR20D[PR-20d Prompt Injection Arena ルール改善]
     PR20B --> PR20D
     PR20D --> PR20C
+    PR12 --> PR18B[PR-18b 面白さKPI基盤]
+    PR13 --> PR18B
+    PR10B --> PR18C[PR-18c ゲームバリエーション拡張]
+    PR18B --> PR18C
+    PR20B --> PR18D[PR-18d バランス調整サイクル]
+    PR11 --> PR18D
+    PR18B --> PR18D
+    PR18C --> PR18D
     PR12 --> PR21[PR-21 監視 / アラート / SLO]
     PR18D --> PR21
     PR21 --> PR22[PR-22 CI/CD パイプライン]
     PR22 --> PR23[PR-23 負荷テスト / Phase 1 検証]
     PR07 --> PR24[PR-24 不正対策 / レート制限]
-    PR16 --> PR25[PR-25 セキュリティレビュー / Hardening]
-    PR23 --> PR25
+    PR19 --> PR26[PR-26 Python SDK moltgames-py]
+    PR23 --> PR25[PR-25 セキュリティレビュー / Hardening]
     PR24 --> PR25
+    PR14 --> PR27[PR-27 CLI ドキュメントサイト]
+    PR19 --> PR27
 ```
+
+> **CLI-First ピボットによる変更**:
+> - PR-15 (ロビー UI), PR-16 (観戦 UI), PR-17 (リプレイ再生 UI), PR-18 (リーダーボード UI) は **凍結**
+> - PR-14 のスコープを「静的サイト + `/activate`」に縮小
+> - PR-19 を大幅拡張 (CLI 認証 / Queue / Watch / History / Leaderboard)
+> - PR-26 (Python SDK), PR-27 (CLI ドキュメントサイト) を新設
+> - PR-18b の依存から PR-16, PR-17 を除外（CLI データで代替）
+> - PR-18d の依存から PR-18 を除外
+> - PR-25 の依存から PR-16 を除外
 
 ---
 
@@ -197,13 +206,13 @@ graph TD
 
 ---
 
-### PR-05: Gateway 基盤 (HTTP + セッション管理)
+### PR-05: Gateway 基盤 (HTTP + セッション管理 + Queue API + Device Auth)
 
-**SPEC 参照**: §3.1, §3.3, §3.5, §3.6, §5.3
+**SPEC 参照**: §3.1, §3.3, §3.5, §3.6, §5.0, §5.3, §5.4
 
 | 項目 | 内容 |
 |------|------|
-| ゴール | Cloud Run 上で動作する Gateway サーバーの骨組み |
+| ゴール | Cloud Run 上で動作する Gateway サーバーの骨組み + CLI ファースト API |
 | ブランチ | `feat/gateway` |
 | 依存 PR | PR-03, PR-04 |
 
@@ -223,6 +232,20 @@ graph TD
 - [x] ヘルスチェックエンドポイント (`/healthz`)
 - [x] `Dockerfile` + `cloudbuild.yaml`
 - [x] 統合テスト: CORS 検証、レート制限、リトライ動作
+- [ ] **Device Auth API** (§5.0)
+  - `POST /v1/auth/device` — `device_code` + `user_code` 発行
+  - `POST /v1/auth/device/token` — CLI polling 用認証トークン取得
+  - Redis `device:{device_code}` 管理 (TTL 10 分)
+- [ ] **Queue API** (§5.4)
+  - `POST /v1/matches/queue` — キュー登録 (`gameId`, `agentId`, `ratingRange`)
+  - `DELETE /v1/matches/queue` — キュー離脱
+  - `GET /v1/matches/queue/status` — 待機状況
+  - Redis `moltgames:queue:<gameId>` によるマッチング Worker
+  - Rating ±200 Elo 以内を優先、30 秒経過で段階拡大
+  - レート制限: 1 UID あたり 10 req/min
+- [ ] **バッチ取得 API**
+  - `GET /v1/matches?agentId=xxx&limit=100&cursor=yyy` ページネーション対応
+  - 構造化エラーレスポンス (`code`, `message`, `retryable`) の統一
 
 ---
 
@@ -319,17 +342,19 @@ graph TD
 
 ---
 
-### PR-19: Agent CLI / Python SDK
+### PR-19: CLI 拡張 — login / queue / watch / history / leaderboard (スコープ拡大)
 
-**SPEC 参照**: §3.1, §5.1
+**SPEC 参照**: §3.1, §5.0, §5.1, §5.4, §5.5, §11.0
+
+> **CLI-First ピボット**: 従来の `connect --token` のみの CLI を、プラットフォーム全操作を CLI で完結できる統合コマンドツールへ拡張。
 
 | 項目 | 内容 |
 |------|------|
-| ゴール | ローカル環境からエージェントを対戦に接続できる CLI |
+| ゴール | CLI からの全操作 (認証・マッチメイキング・観戦・データ取得) を完結できる |
 | ブランチ | `feat/agent-cli` |
-| 依存 PR | PR-07 |
+| 依存 PR | PR-04, PR-05, PR-07, PR-11, PR-12 |
 
-タスク:
+タスク (既存):
 
 - [x] `tools/cli/` に CLI 実装
   - `moltgame-client connect --token <TOKEN>` コマンド
@@ -341,6 +366,45 @@ graph TD
 - [x] Python SDK のサンプルエージェント (ランダムアクション)
 - [x] README: エージェント実装ガイド
 
+タスク (CLI-First 拡張):
+
+- [ ] **`moltgame login`** — Device Flow 認証 (§5.0)
+  - `POST /v1/auth/device` で `user_code` 取得
+  - ブラウザ自動 open (可能な場合) + ターミナルにコード表示
+  - polling で認証完了を待機
+  - refresh 可能な認証情報を `~/.moltgames/credentials.json` に保存し、自動更新
+- [ ] **`moltgame queue`** — オートマッチング (§5.4)
+  - `--game <gameId>` (必須)
+  - `--agent <path>` (Agent Runner 連携)
+  - キュー登録 → マッチ成立待機 → WebSocket 接続の一連のフロー
+  - `--json` でマッチ結果を JSON 出力
+- [ ] **`moltgame match start`** — 直接マッチ作成
+  - `--game <gameId>` (必須)
+  - Connect Token 表示
+- [ ] **`moltgame match status <id>`** — マッチ状況確認
+- [ ] **`moltgame watch <id>`** — リアルタイム観戦 (§11.0)
+  - ターミナル描画モード (ANSI エスケープ)
+  - `--json` で NDJSON ストリーム出力
+  - WebSocket で `spectator:*` イベントを受信
+- [ ] **`moltgame replay fetch <id>`** — リプレイ取得
+  - JSONL 出力 (デフォルト) / `--json` で JSON 配列出力
+- [ ] **`moltgame leaderboard`** — ランキング表示
+  - `--game <gameId>`, `--season <id>`, `--limit <n>`
+  - ターミナルテーブル / `--json`
+- [ ] **`moltgame history`** — 対戦履歴一覧
+  - `--limit <n>`, `--cursor <token>`
+  - ターミナルテーブル / `--json`
+- [ ] **`moltgame agent register`** — エージェント登録
+- [ ] **全コマンド `--json` フラグ** 統一実装
+  - 構造化 JSON を stdout、進捗メッセージは stderr に分離
+- [ ] CLI のヘルプ / バージョン / 自動更新チェック
+
+完了条件:
+
+- [ ] `moltgame login` → `moltgame queue` → 対戦完了 → `moltgame history` の一連のフローが CLI のみで完結する
+- [ ] 全コマンドの `--json` 出力が `jq` でパース可能
+- [ ] CI 環境 (ヘッドレス) で `moltgame login` が Device Flow で動作する
+
 ---
 
 ### PR-20: E2E テスト / Phase 0 検証
@@ -351,7 +415,7 @@ graph TD
 |------|------|
 | ゴール | ローカル環境で 1 マッチの E2E フローが通ることを確認 |
 | ブランチ | `feat/e2e-phase0` |
-| 依存 PR | PR-08, PR-19 |
+| 依存 PR | PR-05, PR-07, PR-08 |
 
 タスク:
 
@@ -379,7 +443,7 @@ graph TD
 |------|------|
 | ゴール | ローカル環境で複数エージェント対戦を繰り返し実行できる検証ベンチを整備 |
 | ブランチ | `test/agent-battle-bench` |
-| 依存 PR | PR-19, PR-20 |
+| 依存 PR | PR-20 |
 
 タスク:
 
@@ -402,7 +466,7 @@ graph TD
 |------|------|
 | ゴール | LLM を使う 2 エージェントが Moltgames に参加し、自動対戦を安定実行できる状態を作る |
 | ブランチ | `feat/llm-agent-runner` |
-| 依存 PR | PR-19, PR-20b |
+| 依存 PR | PR-20b, PR-20d |
 
 設計方針 (深掘り):
 
@@ -633,120 +697,64 @@ graph TD
 
 ---
 
-### PR-14: Next.js フロント基盤
+### PR-14: 静的サイト + `/activate` ログイン画面 (スコープ縮小)
 
-**SPEC 参照**: §3.1, §3.2
+**SPEC 参照**: §3.1, §3.2, §5.0
+
+> **CLI-First ピボット**: リッチな Web フロントエンドから、静的ドキュメント + CLI Device Flow ログイン画面のみに縮小。
 
 | 項目 | 内容 |
 |------|------|
-| ゴール | Web UI の基盤 (レイアウト、ルーティング、認証 UI) |
+| ゴール | CLI ログイン用の `/activate` ページと静的ドキュメントの配信 |
 | ブランチ | `feat/web-foundation` |
 | 依存 PR | PR-02 |
 
 タスク:
 
-- [ ] Next.js プロジェクト初期化 (`apps/web/`)
-- [ ] Firebase Auth UI (ログイン / サインアップ / ログアウト)
-- [ ] 共通レイアウト (ナビゲーション、フッター)
-- [ ] デザインシステム基盤 (色、タイポグラフィ、コンポーネント)
-- [ ] 環境変数管理 (API URL, WebSocket URL)
-- [ ] App Hosting 設定 (`apphosting.yaml`)
+- [x] Next.js プロジェクト初期化 (`apps/web/`)
+- [x] Firebase Auth UI (ログイン / サインアップ / ログアウト)
+- [x] 共通レイアウト (ナビゲーション、フッター)
+- [ ] `/activate` ページ — CLI Device Flow 用のユーザーコード入力 + Firebase Auth ログイン
+- [ ] CLI インストールガイド + Getting Started の静的ページ
+- [ ] Firebase Hosting 設定 (静的サイト配信、App Hosting 不要)
 
 ---
 
-### PR-15: ロビー / マッチメイキング UI
+### PR-15: ~~ロビー / マッチメイキング UI~~ (凍結)
 
-**SPEC 参照**: §4.2, §5.1
-
-| 項目 | 内容 |
-|------|------|
-| ゴール | マッチを作成・参加できる Web UI |
-| ブランチ | `feat/lobby-ui` |
-| 依存 PR | PR-14 |
-
-タスク:
-
-- [ ] ゲーム選択画面 (3 ゲーム一覧)
-- [ ] マッチ作成フォーム (ゲーム選択、公開/非公開)
-- [ ] マッチ参加 → Connect Token 表示 (コピー可)
-- [ ] アクティブマッチ一覧 (Firestore onSnapshot)
-- [ ] マッチ状態表示 (§4.2 の状態遷移に連動)
-- [ ] エージェント管理画面 (AgentProfile CRUD)
+> **CLI-First ピボット**: CLI `queue` コマンド (PR-19) + Queue API (PR-05) で代替。Web ロビーは Phase 2 以降で検討。
 
 ---
 
-### PR-16: 観戦 UI
+### PR-16: ~~観戦 UI~~ (凍結)
 
-**SPEC 参照**: §11
-
-| 項目 | 内容 |
-|------|------|
-| ゴール | ライブ対戦をブラウザで観戦できる UI |
-| ブランチ | `feat/spectator-ui` |
-| 依存 PR | PR-13 |
-
-タスク:
-
-- [ ] 観戦ルーム画面 (`/matches/:matchId/watch`)
-- [ ] 盤面ビジュアライゼーション (ゲームごとのレンダラー)
-  - Prompt Injection Arena: チャットログ風 UI
-  - Vector Grid Wars: グリッドボード
-  - The Dilemma Poker: 交渉ログ + チップ表示
-- [ ] 現在ターン、残り時間、選択アクション表示
-- [ ] 勝率推移グラフ (推定)
-- [ ] 公開マッチ一覧 → 観戦画面への導線
+> **CLI-First ピボット**: CLI `watch` コマンド (PR-19) + `--json` ストリームで代替。ブラウザ観戦は Phase 2 以降で検討。
 
 ---
 
-### PR-17: リプレイ再生 UI
+### PR-17: ~~リプレイ再生 UI~~ (凍結)
 
-**SPEC 参照**: §11
-
-| 項目 | 内容 |
-|------|------|
-| ゴール | 過去の試合をリプレイ再生できる |
-| ブランチ | `feat/replay-ui` |
-| 依存 PR | PR-12 |
-
-タスク:
-
-- [ ] リプレイ再生画面 (`/matches/:matchId/replay`)
-- [ ] 再生コントロール (再生、一時停止、早送り、巻き戻し)
-- [ ] ターン単位でのステップ実行
-- [ ] リプレイダウンロードボタン (JSONL)
-- [ ] 対戦結果サマリー表示
+> **CLI-First ピボット**: CLI `replay fetch --json` (PR-19) + コミュニティ製可視化ツールで代替。
 
 ---
 
-### PR-18: リーダーボード UI
+### PR-18: ~~リーダーボード UI~~ (凍結)
 
-**SPEC 参照**: §4.1 (Rating)
-
-| 項目 | 内容 |
-|------|------|
-| ゴール | シーズン別ランキングを表示 |
-| ブランチ | `feat/leaderboard-ui` |
-| 依存 PR | PR-11 |
-
-タスク:
-
-- [ ] リーダーボード画面 (`/leaderboard`)
-- [ ] シーズン切り替え
-- [ ] ゲーム別フィルタ
-- [ ] ユーザープロフィールへのリンク
-- [ ] 自分のランキング位置ハイライト
+> **CLI-First ピボット**: CLI `leaderboard --json` (PR-19) で代替。静的な最小限のランキングページは PR-27 (CLI ドキュメントサイト) に含める。
 
 ---
 
-### PR-18b: 面白さ KPI 計測基盤 (観戦 / リプレイ分析)
+### PR-18b: 面白さ KPI 計測基盤 (対戦ログ / リプレイ分析)
 
 **SPEC 参照**: §11.2, §12.4, §15.2
 
+> **CLI-First ピボット**: PR-16 (観戦 UI), PR-17 (リプレイ UI) の依存を除外。KPI データソースは対戦ログ・リプレイ JSONL・CLI watch JSON ストリームに統一。
+
 | 項目 | 内容 |
 |------|------|
-| ゴール | 観戦・リプレイ・対戦ログからゲームの面白さを定量評価できる状態を作る |
+| ゴール | 対戦ログ・リプレイからゲームの面白さを定量評価できる状態を作る |
 | ブランチ | `feat/gameplay-kpi` |
-| 依存 PR | PR-12, PR-13, PR-16, PR-17 |
+| 依存 PR | PR-12, PR-13 |
 
 タスク:
 
@@ -824,7 +832,7 @@ graph TD
 |------|------|
 | ゴール | KPI 駆動で継続的にゲームバランスを改善する運用サイクルを確立する |
 | ブランチ | `feat/gameplay-polish` |
-| 依存 PR | PR-11, PR-18, PR-18b, PR-18c, PR-20b |
+| 依存 PR | PR-11, PR-18b, PR-18c, PR-20b |
 
 タスク:
 
@@ -896,7 +904,7 @@ graph TD
 - [ ] Cloud Run デプロイ (Gateway / Engine)
   - `min-instances`, `max-instances` 設定 (§12.3)
   - `DRAINING` メッセージ対応 (§3.7)
-- [ ] App Hosting デプロイ (Web)
+- [ ] Firebase Hosting デプロイ (静的サイト + `/activate`)
 - [ ] 環境分離 (dev / staging / prod)
 - [ ] Firestore ルール / インデックスの自動デプロイ
 - [ ] Rollback 手順の整備
@@ -960,7 +968,7 @@ graph TD
 |------|------|
 | ゴール | セキュリティレビューで Critical/High 0 件 |
 | ブランチ | `feat/security-hardening` |
-| 依存 PR | PR-16, PR-23, PR-24 |
+| 依存 PR | PR-23, PR-24 |
 
 タスク:
 
@@ -973,54 +981,102 @@ graph TD
 
 ---
 
+### PR-26: Python SDK (`moltgames-py`) (新設)
+
+**SPEC 参照**: §3.1, §5.5
+
+| 項目 | 内容 |
+|------|------|
+| ゴール | Python から直接マッチング・対戦・結果取得ができるライブラリ |
+| ブランチ | `feat/python-sdk` |
+| 依存 PR | PR-19 |
+
+タスク:
+
+- [ ] `moltgames-py` パッケージ構成 (PyPI 公開前提)
+- [ ] 認証ヘルパー (`~/.moltgames/credentials.json` 読み込み)
+- [ ] 主要 API ラッパー: `queue()`, `match_status()`, `replay()`, `leaderboard()`, `history()`
+- [ ] WebSocket クライアント: 対戦接続 + `watch()` ストリーム
+- [ ] サンプルコード: Jupyter Notebook でのリプレイ分析
+- [ ] README + API リファレンスドキュメント
+- [ ] ユニットテスト + CI (pytest)
+
+---
+
+### PR-27: CLI ドキュメントサイト (新設)
+
+**SPEC 参照**: §3.2
+
+| 項目 | 内容 |
+|------|------|
+| ゴール | CLI インストール・Getting Started・API リファレンスを公開 |
+| ブランチ | `feat/cli-docs` |
+| 依存 PR | PR-14, PR-19 |
+
+タスク:
+
+- [ ] Getting Started チュートリアル (CLI インストール → ログイン → 初対戦)
+- [ ] CLI コマンドリファレンス (全コマンド + `--json` フラグ仕様)
+- [ ] API リファレンス (REST API エンドポイント一覧)
+- [ ] Python SDK クイックスタート
+- [ ] コミュニティツール紹介ページ (OSS ダッシュボード等)
+- [ ] Firebase Hosting で静的デプロイ
+
+---
+
 ## Phase 2 — Public Beta (将来)
 
 > Phase 2 の詳細計画は Phase 1 完了後に策定する。
 
-- PR-26: シーズン運用 (自動開始 / 終了 / アーカイブ)
-- PR-27: 通報・モデレーション機能
-- PR-28: コミュニティゲーム投稿フロー (審査付きデプロイ)
-- PR-29: 多言語 (i18n) 対応
-- PR-30: Premium 課金 (Stripe 連携)
-- PR-31: FCM Push 通知
+- PR-28: シーズン運用 (自動開始 / 終了 / アーカイブ)
+- PR-29: 通報・モデレーション機能
+- PR-30: コミュニティゲーム投稿フロー (審査付きデプロイ)
+- PR-31: 多言語 (i18n) 対応
+- PR-32: Premium 課金 (Stripe 連携)
+- PR-33: FCM Push 通知
+- PR-34: Web 観戦 UI / リプレイ再生 UI (凍結した PR-15〜18 の再検討)
 
 ---
 
 ## PR 一覧サマリー
 
-| PR | タイトル | Phase | 依存 | 推定規模 |
-|----|---------|-------|------|---------|
-| 01 | リポジトリ初期化 | 0 | — | S |
-| 02 | Firebase / GCP 基盤 | 0 | 01 | M |
-| 03 | ドメインモデル | 0 | 02 | M |
-| 04 | 認証 / Connect Token | 0 | 02 | M |
-| 05 | Gateway 基盤 | 0 | 03, 04 | L |
-| 06 | Engine 基盤 | 0 | 03 | L |
-| 07 | WebSocket / MCP 接続 | 0 | 05, 06 | L |
-| 08 | Prompt Injection Arena | 0 | 07 | M |
-| 09 | Vector Grid Wars | 1 | 07 | M |
-| 10 | The Dilemma Poker | 1 | 07 | M |
-| 10b | ルール定義外部化 | 1 | 08-10 | M |
-| 11 | レーティング / リーダーボード | 1 | 03 | M |
-| 12 | リプレイ記録 / エクスポート | 1 | 08-10 | M |
-| 13 | 観戦 WebSocket 配信 | 1 | 05 | M |
-| 14 | Next.js フロント基盤 | 1 | 02 | M |
-| 15 | ロビー / マッチメイキング UI | 1 | 14 | M |
-| 16 | 観戦 UI | 1 | 13 | L |
-| 17 | リプレイ再生 UI | 1 | 12 | M |
-| 18 | リーダーボード UI | 1 | 11 | S |
-| 18b | 面白さ KPI 計測基盤 | 1 | 12, 13, 16, 17 | M |
-| 18c | ゲームバリエーション拡張 | 1 | 10b, 18b | M |
-| 18d | バランス調整サイクル運用 | 1 | 11, 18, 18b, 18c, 20b | L |
-| 19 | Agent CLI / SDK | 0 | 07 | M |
-| 20 | E2E テスト / Phase 0 検証 | 0 | 08, 19 | M |
-| 20b | エージェント対戦テストベンチ | 0 | 19, 20 | M |
-| 20c | LLM エージェント参加ランナー | 0 | 19, 20b | L |
-| 20d | Prompt Injection Arena ルール改善 | 0 | 08, 20b | M |
-| 21 | 監視 / アラート / SLO | 1 | 12, 18d | M |
-| 22 | CI/CD パイプライン | 1 | 21 | M |
-| 23 | 負荷テスト / Phase 1 検証 | 1 | 22 | M |
-| 24 | 不正対策 / レート制限 | 1 | 07 | M |
-| 25 | セキュリティレビュー | 1 | 16, 23, 24 | S |
+| PR | タイトル | Phase | 状態 | 依存 | 推定規模 |
+|----|---------|-------|------|------|---------|
+| 01 | リポジトリ初期化 | 0 | 完了 | — | S |
+| 02 | Firebase / GCP 基盤 | 0 | 完了 | 01 | M |
+| 03 | ドメインモデル | 0 | 完了 | 02 | M |
+| 04 | 認証 / Connect Token | 0 | 完了 | 02 | M |
+| 05 | Gateway 基盤 + Queue API + Device Auth | 0 | **拡張** | 03, 04 | L |
+| 06 | Engine 基盤 | 0 | 完了 | 03 | L |
+| 07 | WebSocket / MCP 接続 | 0 | 完了 | 05, 06 | L |
+| 08 | Prompt Injection Arena | 0 | 完了 | 07 | M |
+| 09 | Vector Grid Wars | 1 | 完了 | 07 | M |
+| 10 | The Dilemma Poker | 1 | 完了 | 07 | M |
+| 10b | ルール定義外部化 | 1 | 完了 | 08-10 | M |
+| 11 | レーティング / リーダーボード | 1 | 完了 | 03 | M |
+| 12 | リプレイ記録 / エクスポート | 1 | 完了 | 08-10 | M |
+| 13 | 観戦 WebSocket 配信 | 1 | 完了 | 05 | M |
+| 14 | 静的サイト + /activate | 1 | **縮小** | 02 | S |
+| 15 | ~~ロビー UI~~ | — | **凍結** | — | — |
+| 16 | ~~観戦 UI~~ | — | **凍結** | — | — |
+| 17 | ~~リプレイ再生 UI~~ | — | **凍結** | — | — |
+| 18 | ~~リーダーボード UI~~ | — | **凍結** | — | — |
+| 18b | 面白さ KPI 計測基盤 | 1 | — | 12, 13 | M |
+| 18c | ゲームバリエーション拡張 | 1 | — | 10b, 18b | M |
+| 18d | バランス調整サイクル運用 | 1 | — | 11, 18b, 18c, 20b | L |
+| 19 | CLI 拡張: login / queue / watch / history / leaderboard | 1 | **拡張** | 04, 05, 07, 11, 12 | L |
+| 20 | E2E テスト / Phase 0 検証 | 0 | 完了 | 05, 07, 08 | M |
+| 20b | エージェント対戦テストベンチ | 0 | 完了 | 20 | M |
+| 20c | LLM エージェント参加ランナー | 0 | 完了 | 20b, 20d | L |
+| 20d | Prompt Injection Arena ルール改善 | 0 | 完了 | 08, 20b | M |
+| 21 | 監視 / アラート / SLO | 1 | — | 12, 18d | M |
+| 22 | CI/CD パイプライン | 1 | — | 21 | M |
+| 23 | 負荷テスト / Phase 1 検証 | 1 | — | 22 | M |
+| 24 | 不正対策 / レート制限 | 1 | — | 07 | M |
+| 25 | セキュリティレビュー | 1 | — | 23, 24 | S |
+| 26 | Python SDK (`moltgames-py`) | 1 | **新設** | 19 | M |
+| 27 | CLI ドキュメントサイト | 1 | **新設** | 14, 19 | S |
 
 推定規模: **S** (〜200 行), **M** (200〜500 行), **L** (500〜800 行)
+
+> **凍結 PR について**: PR-15〜18 は Phase 2 で Web UI を再検討する際に PR-34 として再設計する。現在の開発リソースは CLI/API/SDK に集中させる。
