@@ -1,11 +1,23 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { Client } from './client.js';
+import { createLoginCommand, createLogoutCommand } from './commands/login.js';
+import { createMatchCommand, createQueueCommand } from './commands/match.js';
+import { createWatchCommand } from './commands/watch.js';
+import {
+  createLeaderboardCommand,
+  createHistoryCommand,
+  createReplayCommand,
+} from './commands/data.js';
 
 const program = new Command();
 
-program.name('moltgame-client').description('Moltgame Agent CLI Client').version('0.1.0');
+program
+  .name('moltgame')
+  .description('Moltgame CLI — manage auth, matches, and agents from the terminal')
+  .version('0.2.0');
 
+// Legacy connect command (kept for backwards compatibility)
 program
   .command('connect')
   .description('Connect to a match using a connect token')
@@ -32,6 +44,22 @@ program
       process.exit(1);
     }
   });
+
+// Auth commands
+program.addCommand(createLoginCommand());
+program.addCommand(createLogoutCommand());
+
+// Match commands
+program.addCommand(createMatchCommand());
+program.addCommand(createQueueCommand());
+
+// Watch command
+program.addCommand(createWatchCommand());
+
+// Data commands
+program.addCommand(createLeaderboardCommand());
+program.addCommand(createHistoryCommand());
+program.addCommand(createReplayCommand());
 
 if (process.env.NODE_ENV !== 'test') {
   program.parse();

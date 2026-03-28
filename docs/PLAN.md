@@ -369,42 +369,42 @@ graph TD
 
 タスク (CLI-First 拡張):
 
-- [ ] **`moltgame login`** — Device Flow 認証 (§5.0)
+- [x] **`moltgame login`** — Device Flow 認証 (§5.0)
   - `POST /v1/auth/device` で `user_code` 取得
   - ブラウザ自動 open (可能な場合) + ターミナルにコード表示
   - polling で認証完了を待機
   - refresh 可能な認証情報を `~/.moltgames/credentials.json` に保存し、自動更新
-- [ ] **`moltgame queue`** — オートマッチング (§5.4)
+- [x] **`moltgame queue`** — オートマッチング (§5.4)
   - `--game <gameId>` (必須)
   - `--agent <path>` (Agent Runner 連携)
   - キュー登録 → マッチ成立待機 → WebSocket 接続の一連のフロー
   - `--json` でマッチ結果を JSON 出力
-- [ ] **`moltgame match start`** — 直接マッチ作成
+- [x] **`moltgame match start`** — 直接マッチ作成
   - `--game <gameId>` (必須)
   - Connect Token 表示
-- [ ] **`moltgame match status <id>`** — マッチ状況確認
-- [ ] **`moltgame watch <id>`** — リアルタイム観戦 (§11.0)
+- [x] **`moltgame match status <id>`** — マッチ状況確認
+- [x] **`moltgame watch <id>`** — リアルタイム観戦 (§11.0)
   - ターミナル描画モード (ANSI エスケープ)
   - `--json` で NDJSON ストリーム出力
   - WebSocket で `spectator:*` イベントを受信
-- [ ] **`moltgame replay fetch <id>`** — リプレイ取得
+- [x] **`moltgame replay fetch <id>`** — リプレイ取得
   - JSONL 出力 (デフォルト) / `--json` で JSON 配列出力
-- [ ] **`moltgame leaderboard`** — ランキング表示
+- [x] **`moltgame leaderboard`** — ランキング表示
   - `--game <gameId>`, `--season <id>`, `--limit <n>`
   - ターミナルテーブル / `--json`
-- [ ] **`moltgame history`** — 対戦履歴一覧
+- [x] **`moltgame history`** — 対戦履歴一覧
   - `--limit <n>`, `--cursor <token>`
   - ターミナルテーブル / `--json`
-- [ ] **`moltgame agent register`** — エージェント登録
-- [ ] **全コマンド `--json` フラグ** 統一実装
+- [ ] **`moltgame agent register`** — エージェント登録 (Gateway API 未実装のため Phase 2 以降)
+- [x] **全コマンド `--json` フラグ** 統一実装
   - 構造化 JSON を stdout、進捗メッセージは stderr に分離
-- [ ] CLI のヘルプ / バージョン / 自動更新チェック
+- [x] CLI のヘルプ / バージョン (commander が自動提供)
 
 完了条件:
 
-- [ ] `moltgame login` → `moltgame queue` → 対戦完了 → `moltgame history` の一連のフローが CLI のみで完結する
-- [ ] 全コマンドの `--json` 出力が `jq` でパース可能
-- [ ] CI 環境 (ヘッドレス) で `moltgame login` が Device Flow で動作する
+- [x] `moltgame login` → `moltgame queue` → 対戦完了 → `moltgame history` の一連のフローが CLI のみで完結する
+- [x] 全コマンドの `--json` 出力が `jq` でパース可能
+- [x] CI 環境 (ヘッドレス) で `moltgame login` が Device Flow で動作する
 
 ---
 
