@@ -1,6 +1,18 @@
 import type { NextConfig } from 'next';
 
 const isDev = process.env['NODE_ENV'] === 'development';
+const defaultGatewayApiOrigin = isDev ? 'http://localhost:8080' : 'https://api.moltgame.com';
+
+// Derive the origin of the Gateway API for CSP connect-src.
+const gatewayApiOrigin = (() => {
+  const raw = process.env['NEXT_PUBLIC_API_BASE_URL'];
+  if (!raw) return defaultGatewayApiOrigin;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return defaultGatewayApiOrigin;
+  }
+})();
 
 const securityHeaders = [
   {
@@ -31,7 +43,7 @@ const securityHeaders = [
       "img-src 'self' data: https:",
       "font-src 'self'",
       // Firebase Auth popups and API calls
-      "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.firebaseio.com",
+      `connect-src 'self' ${gatewayApiOrigin} https://*.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.firebaseio.com`,
       "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
       "object-src 'none'",
       "base-uri 'self'",
@@ -41,6 +53,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  output: 'export',
   transpilePackages: ['@moltgames/domain'],
   async headers() {
     return [

@@ -232,18 +232,19 @@ graph TD
 - [x] ヘルスチェックエンドポイント (`/healthz`)
 - [x] `Dockerfile` + `cloudbuild.yaml`
 - [x] 統合テスト: CORS 検証、レート制限、リトライ動作
-- [ ] **Device Auth API** (§5.0)
+- [x] **Device Auth API** (§5.0)
   - `POST /v1/auth/device` — `device_code` + `user_code` 発行
   - `POST /v1/auth/device/token` — CLI polling 用認証トークン取得
+  - `POST /v1/auth/device/activate` — ブラウザ側ユーザー認証完了エンドポイント
   - Redis `device:{device_code}` 管理 (TTL 10 分)
-- [ ] **Queue API** (§5.4)
+- [x] **Queue API** (§5.4)
   - `POST /v1/matches/queue` — キュー登録 (`gameId`, `agentId`, `ratingRange`)
   - `DELETE /v1/matches/queue` — キュー離脱
   - `GET /v1/matches/queue/status` — 待機状況
   - Redis `moltgames:queue:<gameId>` によるマッチング Worker
   - Rating ±200 Elo 以内を優先、30 秒経過で段階拡大
   - レート制限: 1 UID あたり 10 req/min
-- [ ] **バッチ取得 API**
+- [x] **バッチ取得 API**
   - `GET /v1/matches?agentId=xxx&limit=100&cursor=yyy` ページネーション対応
   - 構造化エラーレスポンス (`code`, `message`, `retryable`) の統一
 
@@ -714,9 +715,9 @@ graph TD
 - [x] Next.js プロジェクト初期化 (`apps/web/`)
 - [x] Firebase Auth UI (ログイン / サインアップ / ログアウト)
 - [x] 共通レイアウト (ナビゲーション、フッター)
-- [ ] `/activate` ページ — CLI Device Flow 用のユーザーコード入力 + Firebase Auth ログイン
-- [ ] CLI インストールガイド + Getting Started の静的ページ
-- [ ] Firebase Hosting 設定 (静的サイト配信、App Hosting 不要)
+- [x] `/activate` ページ — CLI Device Flow 用のユーザーコード入力 + Firebase Auth ログイン
+- [x] CLI インストールガイド + Getting Started の静的ページ (`/docs/get-started`)
+- [x] Firebase Hosting 設定 (静的サイト配信、App Hosting 不要)
 
 ---
 
