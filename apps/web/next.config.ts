@@ -1,15 +1,16 @@
 import type { NextConfig } from 'next';
 
 const isDev = process.env['NODE_ENV'] === 'development';
+const defaultGatewayApiOrigin = isDev ? 'http://localhost:8080' : 'https://api.moltgame.com';
 
 // Derive the origin of the Gateway API for CSP connect-src.
 const gatewayApiOrigin = (() => {
   const raw = process.env['NEXT_PUBLIC_API_BASE_URL'];
-  if (!raw) return 'http://localhost:8080';
+  if (!raw) return defaultGatewayApiOrigin;
   try {
     return new URL(raw).origin;
   } catch {
-    return 'http://localhost:8080';
+    return defaultGatewayApiOrigin;
   }
 })();
 
