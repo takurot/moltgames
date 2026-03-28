@@ -8,7 +8,7 @@ const wsMockState = vi.hoisted(() => ({
 
 interface MockWebSocketInstance {
   url: string;
-  headers: Record<string, string>;
+  protocols: string | string[] | undefined;
   readyState: number;
   triggerOpen(): void;
   triggerClose(code: number, reason: string): void;
@@ -29,7 +29,7 @@ vi.mock('ws', () => {
 
     readyState = MockWebSocket.CONNECTING;
     url: string;
-    headers: Record<string, string>;
+    protocols: string | string[] | undefined;
 
     private readonly handlers = new Map<string, EventHandler[]>();
 
@@ -40,9 +40,9 @@ vi.mock('ws', () => {
 
     send = vi.fn();
 
-    constructor(url: string, options?: { headers?: Record<string, string> }) {
+    constructor(url: string, protocols?: string | string[]) {
       this.url = url;
-      this.headers = options?.headers ?? {};
+      this.protocols = protocols;
       wsMockState.instances.push(this as unknown as MockWebSocketInstance);
     }
 
@@ -178,11 +178,11 @@ describe('createWatchCommand() - action', () => {
     await p;
   });
 
-  it('sends Sec-WebSocket-Protocol: moltgame-v1 header', async () => {
+  it('connects with the moltgame.v1 subprotocol', async () => {
     const p = runWatch(['match-xyz', '--url', 'http://localhost:8080']);
     const socket = getLatestSocket();
 
-    expect(socket.headers['Sec-WebSocket-Protocol']).toBe('moltgame-v1');
+    expect(socket.protocols).toBe('moltgame.v1');
 
     socket.triggerOpen();
     socket.triggerClose(1000, 'normal');
@@ -205,11 +205,13 @@ describe('createWatchCommand() - action', () => {
     const socket = getLatestSocket();
     socket.triggerOpen();
 
-    const event1 = { type: 'turn_start', turn: 1, actor: 'agent1' };
-    const event2 = { type: 'tool_call', tool: 'send_message' };
+    const event1 = {
+      type: 'match/event',
+      event: { turn: 1, actor: 'agent1', actionType: 'send_message' },
+    };
+    const event2 = { type: 'match/ended', winner: 'agent1', reason: 'SECRET_GUESSED' };
     socket.triggerMessage(event1);
     socket.triggerMessage(event2);
-    socket.triggerClose(1000, 'normal');
     await p;
 
     const lines = stdoutOutput.split('\n').filter(Boolean);
@@ -223,7 +225,10 @@ describe('createWatchCommand() - action', () => {
     const socket = getLatestSocket();
     socket.triggerOpen();
 
-    socket.triggerMessage({ type: 'turn_start', turn: 3, actor: 'agent1' });
+    socket.triggerMessage({
+      type: 'match/event',
+      event: { turn: 3, actor: 'agent1', actionType: 'send_message' },
+    });
     socket.triggerClose(1000, 'normal');
     await p;
 
@@ -232,13 +237,13 @@ describe('createWatchCommand() - action', () => {
     expect(stderrOutput).toMatch(/turn_start|TURN|turn/i);
   });
 
-  it('closes WebSocket and exits cleanly when match_end event is received', async () => {
+  it('closes WebSocket and exits cleanly when match/ended event is received', async () => {
     const p = runWatch(['match-3', '--url', 'http://localhost:8080']);
     const socket = getLatestSocket();
     socket.triggerOpen();
 
-    socket.triggerMessage({ type: 'match_end', winner: 'agent1', reason: 'SECRET_GUESSED' });
-    // After match_end the implementation should close the socket itself
+    socket.triggerMessage({ type: 'match/ended', winner: 'agent1', reason: 'SECRET_GUESSED' });
+    // After match/ended the implementation should close the socket itself
     // The close triggers resolution of the promise
     await p;
 

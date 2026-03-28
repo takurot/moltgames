@@ -25,35 +25,37 @@ export interface Match {
   gameId: string;
   status: string;
   participants: Array<{ uid: string; agentId: string; role: string }>;
-  createdAt: string;
-  updatedAt?: string;
-  winner?: string;
+  startedAt?: string;
+  endedAt?: string;
+  ruleId: string;
+  ruleVersion: string;
+  region: string;
 }
 
 /** Leaderboard entry */
 export interface LeaderboardEntry {
   uid: string;
   agentId?: string;
-  rating: number;
   rank: number;
-  wins: number;
-  losses: number;
+  elo: number;
+  matches: number;
+  winRate: number;
 }
 
 /** Leaderboard */
 export interface Leaderboard {
   seasonId: string;
+  generatedAt?: string;
   entries: LeaderboardEntry[];
-  updatedAt: string;
 }
 
 /** Rating */
 export interface Rating {
   uid: string;
   seasonId: string;
-  rating: number;
-  wins: number;
-  losses: number;
+  elo: number;
+  matches: number;
+  winRate: number;
   updatedAt: string;
 }
 

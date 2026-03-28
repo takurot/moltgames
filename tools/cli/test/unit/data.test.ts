@@ -98,10 +98,10 @@ describe('createLeaderboardCommand', () => {
     const mockLeaderboard = {
       seasonId: 'season-1',
       entries: [
-        { rank: 1, agentId: 'agent-a', uid: 'user-1', rating: 1500, wins: 10, losses: 2 },
-        { rank: 2, agentId: 'agent-b', uid: 'user-2', rating: 1400, wins: 8, losses: 4 },
+        { rank: 1, agentId: 'agent-a', uid: 'user-1', elo: 1500, matches: 12, winRate: 0.83 },
+        { rank: 2, agentId: 'agent-b', uid: 'user-2', elo: 1400, matches: 12, winRate: 0.67 },
       ],
-      updatedAt: '2024-01-01T00:00:00Z',
+      generatedAt: '2024-01-01T00:00:00Z',
     };
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -127,8 +127,10 @@ describe('createLeaderboardCommand', () => {
   it('outputs JSON when --json flag is set', async () => {
     const mockLeaderboard = {
       seasonId: 'current',
-      entries: [{ rank: 1, agentId: 'agent-x', uid: 'user-x', rating: 1600, wins: 5, losses: 1 }],
-      updatedAt: '2024-01-01T00:00:00Z',
+      entries: [
+        { rank: 1, agentId: 'agent-x', uid: 'user-x', elo: 1600, matches: 6, winRate: 0.83 },
+      ],
+      generatedAt: '2024-01-01T00:00:00Z',
     };
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -149,7 +151,7 @@ describe('createLeaderboardCommand', () => {
     const mockLeaderboard = {
       seasonId: 'current',
       entries: [],
-      updatedAt: '2024-01-01T00:00:00Z',
+      generatedAt: '2024-01-01T00:00:00Z',
     };
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -215,7 +217,11 @@ describe('createHistoryCommand', () => {
         matchId: 'match-1',
         gameId: 'game-a',
         status: 'completed',
-        createdAt: '2024-01-01T00:00:00Z',
+        startedAt: '2024-01-01T00:00:00Z',
+        endedAt: '2024-01-01T00:10:00Z',
+        ruleId: 'game-a',
+        ruleVersion: '1',
+        region: 'us-central1',
         participants: [
           { uid: 'user-1', agentId: 'agent-a', role: 'player' },
           { uid: 'user-2', agentId: 'agent-b', role: 'player' },
@@ -233,7 +239,7 @@ describe('createHistoryCommand', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ matches: mockMatches }),
+      json: async () => ({ items: mockMatches, nextCursor: null }),
     });
 
     const cmd = createHistoryCommand();
@@ -258,7 +264,10 @@ describe('createHistoryCommand', () => {
         matchId: 'match-2',
         gameId: 'game-b',
         status: 'active',
-        createdAt: '2024-01-02T00:00:00Z',
+        startedAt: '2024-01-02T00:00:00Z',
+        ruleId: 'game-b',
+        ruleVersion: '1',
+        region: 'us-central1',
         participants: [],
       },
     ];
@@ -273,15 +282,15 @@ describe('createHistoryCommand', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ matches: mockMatches }),
+      json: async () => ({ items: mockMatches, nextCursor: 'cursor-1' }),
     });
 
     const cmd = createHistoryCommand();
     await runCommand(cmd, ['--json', '--url', 'http://localhost:8080']);
 
     const stdout = stdoutOutput.join('');
-    const parsed = JSON.parse(stdout) as unknown;
-    expect(parsed).toEqual(mockMatches);
+    const parsed = JSON.parse(stdout) as { matches: unknown[]; nextCursor: string | null };
+    expect(parsed).toEqual({ matches: mockMatches, nextCursor: 'cursor-1' });
   });
 
   it('prints nextCursor hint to stderr when present', async () => {
@@ -295,7 +304,7 @@ describe('createHistoryCommand', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ matches: [], nextCursor: 'cursor-abc' }),
+      json: async () => ({ items: [], nextCursor: 'cursor-abc' }),
     });
 
     const cmd = createHistoryCommand();
@@ -316,7 +325,7 @@ describe('createHistoryCommand', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ matches: [] }),
+      json: async () => ({ items: [], nextCursor: null }),
     });
 
     const cmd = createHistoryCommand();
@@ -364,7 +373,13 @@ describe('createHistoryCommand', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
-      json: async () => ({ code: 'UNAUTHORIZED', message: 'Unauthorized' }),
+      json: async () => ({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Unauthorized',
+          retryable: false,
+        },
+      }),
     });
 
     const cmd = createHistoryCommand();
@@ -384,7 +399,7 @@ describe('createHistoryCommand', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ matches: [] }),
+      json: async () => ({ items: [], nextCursor: null }),
     });
 
     const cmd = createHistoryCommand();

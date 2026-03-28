@@ -10,6 +10,15 @@ function getErrorMessage(error: unknown): string {
   return 'Unknown error';
 }
 
+function parsePositiveInteger(value: string, label: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
 // =========================================
 // leaderboard command
 // =========================================
@@ -25,6 +34,7 @@ export function createLeaderboardCommand(): Command {
     .option('--json', 'Output as JSON')
     .action(async (options: { season: string; limit: string; url: string; json?: boolean }) => {
       const { season, url, json: jsonOutput } = options;
+      const limit = parsePositiveInteger(options.limit, 'limit');
 
       printInfo(`Fetching leaderboard for season "${season}"...`);
 
@@ -34,7 +44,10 @@ export function createLeaderboardCommand(): Command {
           `/v1/leaderboards/${season}`,
         );
 
-        const { leaderboard } = response;
+        const leaderboard = {
+          ...response.leaderboard,
+          entries: response.leaderboard.entries.slice(0, limit),
+        };
 
         if (jsonOutput) {
           printJson(leaderboard);
@@ -45,18 +58,18 @@ export function createLeaderboardCommand(): Command {
           rank: entry.rank,
           agentId: entry.agentId ?? '',
           uid: entry.uid,
-          rating: entry.rating,
-          wins: entry.wins,
-          losses: entry.losses,
+          elo: entry.elo,
+          matches: entry.matches,
+          winRate: entry.winRate,
         }));
 
         printTable(rows as Array<Record<string, unknown>>, [
           'rank',
           'agentId',
           'uid',
-          'rating',
-          'wins',
-          'losses',
+          'elo',
+          'matches',
+          'winRate',
         ]);
       } catch (error: unknown) {
         printError(getErrorMessage(error));
@@ -90,6 +103,7 @@ export function createHistoryCommand(): Command {
         json?: boolean;
       }) => {
         const { limit, cursor, agent, url, json: jsonOutput } = options;
+        const limitValue = parsePositiveInteger(limit, 'limit');
 
         const creds = await loadCredentials();
         if (creds === null) {
@@ -105,7 +119,7 @@ export function createHistoryCommand(): Command {
         }
 
         const params = new URLSearchParams();
-        params.set('limit', limit);
+        params.set('limit', String(limitValue));
         if (cursor !== undefined) {
           params.set('cursor', cursor);
         }
@@ -116,22 +130,24 @@ export function createHistoryCommand(): Command {
         printInfo('Fetching match history...');
 
         try {
-          const response = await apiRequest<{ matches: Match[]; nextCursor?: string }>(
+          const response = await apiRequest<{ items: Match[]; nextCursor: string | null }>(
             url,
             `/v1/matches?${params.toString()}`,
             { token: creds.idToken },
           );
 
-          const { matches, nextCursor } = response;
+          const matches = response.items;
+          const nextCursor = response.nextCursor;
 
           if (jsonOutput) {
-            printJson(matches);
+            printJson({ matches, nextCursor });
           } else {
             const rows = matches.map((m) => ({
               matchId: m.matchId,
               gameId: m.gameId,
               status: m.status,
-              createdAt: m.createdAt,
+              startedAt: m.startedAt ?? '',
+              endedAt: m.endedAt ?? '',
               participants: m.participants.map((p) => p.agentId).join(', '),
             }));
 
@@ -139,18 +155,23 @@ export function createHistoryCommand(): Command {
               'matchId',
               'gameId',
               'status',
-              'createdAt',
+              'startedAt',
+              'endedAt',
               'participants',
             ]);
           }
 
-          if (nextCursor !== undefined) {
+          if (nextCursor !== null) {
             printInfo(`Next page cursor: ${nextCursor}`);
             printInfo(`  Use: --cursor ${nextCursor}`);
           }
         } catch (error: unknown) {
           const message =
-            error instanceof HttpError ? error.message : (error instanceof Error ? error.message : 'Unknown error');
+            error instanceof HttpError
+              ? error.message
+              : error instanceof Error
+                ? error.message
+                : 'Unknown error';
           printError(message);
           process.exit(1);
         }

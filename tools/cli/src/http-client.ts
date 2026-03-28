@@ -21,6 +21,31 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const parseApiError = (payload: unknown, statusCode: number, statusText: string): ApiError => {
+  const candidate = isRecord(payload) && isRecord(payload.error) ? payload.error : payload;
+
+  if (!isRecord(candidate)) {
+    return {
+      code: 'HTTP_ERROR',
+      message: `HTTP ${statusCode}: ${statusText}`,
+    };
+  }
+
+  const code = typeof candidate.code === 'string' ? candidate.code : 'HTTP_ERROR';
+  const message =
+    typeof candidate.message === 'string' ? candidate.message : `HTTP ${statusCode}: ${statusText}`;
+  const retryable = typeof candidate.retryable === 'boolean' ? candidate.retryable : undefined;
+
+  return {
+    code,
+    message,
+    ...(retryable === undefined ? {} : { retryable }),
+  };
+};
+
 export async function apiRequest<T>(
   baseUrl: string,
   path: string,
@@ -47,16 +72,7 @@ export async function apiRequest<T>(
   if (!response.ok) {
     let apiError: ApiError;
     try {
-      const errorBody = (await response.json()) as {
-        code?: string;
-        message?: string;
-        retryable?: boolean;
-      };
-      apiError = {
-        code: errorBody.code ?? 'HTTP_ERROR',
-        message: errorBody.message ?? `HTTP ${response.status}`,
-        ...(errorBody.retryable !== undefined && { retryable: errorBody.retryable }),
-      };
+      apiError = parseApiError(await response.json(), response.status, response.statusText);
     } catch {
       apiError = {
         code: 'HTTP_ERROR',

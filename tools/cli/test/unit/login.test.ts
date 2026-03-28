@@ -11,11 +11,12 @@ const credentialsMock = vi.hoisted(() => ({
 
 vi.mock('../../src/credentials.js', () => credentialsMock);
 
-// Mock child_process exec for browser opening
-vi.mock('child_process', () => ({
-  exec: vi.fn((_cmd: string, cb: (err: Error | null) => void) => {
-    cb(null);
-  }),
+// Mock child_process spawn for browser opening
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(() => ({
+    on: vi.fn(),
+    unref: vi.fn(),
+  })),
 }));
 
 import { createLoginCommand, createLogoutCommand } from '../../src/commands/login.js';
@@ -62,12 +63,10 @@ describe('createLoginCommand', () => {
     capturedExitCode = undefined;
 
     fetchMock = vi.spyOn(globalThis, 'fetch');
-    processExitMock = vi
-      .spyOn(process, 'exit')
-      .mockImplementation((code?: number | string) => {
-        capturedExitCode = typeof code === 'number' ? code : 0;
-        throw new Error(`process.exit(${code})`);
-      }) as unknown as MockInstance;
+    processExitMock = vi.spyOn(process, 'exit').mockImplementation((code?: number | string) => {
+      capturedExitCode = typeof code === 'number' ? code : 0;
+      throw new Error(`process.exit(${code})`);
+    }) as unknown as MockInstance;
 
     stdoutMock = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
       stdoutOutput += String(chunk);
@@ -226,8 +225,11 @@ describe('createLoginCommand', () => {
         ok: false,
         status: 410,
         json: async () => ({
-          code: 'EXPIRED_TOKEN',
-          message: 'Device code expired',
+          error: {
+            code: 'EXPIRED_TOKEN',
+            message: 'Device code expired',
+            retryable: false,
+          },
         }),
       } as Response);
 
@@ -355,12 +357,10 @@ describe('createLogoutCommand', () => {
     stderrOutput = '';
     capturedExitCode = undefined;
 
-    processExitMock = vi
-      .spyOn(process, 'exit')
-      .mockImplementation((code?: number | string) => {
-        capturedExitCode = typeof code === 'number' ? code : 0;
-        throw new Error(`process.exit(${code})`);
-      }) as unknown as MockInstance;
+    processExitMock = vi.spyOn(process, 'exit').mockImplementation((code?: number | string) => {
+      capturedExitCode = typeof code === 'number' ? code : 0;
+      throw new Error(`process.exit(${code})`);
+    }) as unknown as MockInstance;
 
     vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
       stdoutOutput += String(chunk);

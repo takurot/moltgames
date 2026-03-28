@@ -197,7 +197,10 @@ describe('createMatchCommand', () => {
               { uid: 'user-1', agentId: 'agent-1', role: 'player' },
               { uid: 'user-2', agentId: 'agent-2', role: 'player' },
             ],
-            createdAt: '2024-01-01T00:00:00Z',
+            startedAt: '2024-01-01T00:00:00Z',
+            ruleId: 'game-1',
+            ruleVersion: '1',
+            region: 'us-central1',
           },
         }),
       );
@@ -219,11 +222,11 @@ describe('createMatchCommand', () => {
         gameId: 'game-1',
         status: 'IN_PROGRESS',
         participants: [],
-        createdAt: '2024-01-01T00:00:00Z',
+        ruleId: 'game-1',
+        ruleVersion: '1',
+        region: 'us-central1',
       };
-      mockFetch.mockResolvedValueOnce(
-        makeFetchResponse(200, { status: 'ok', match: matchData }),
-      );
+      mockFetch.mockResolvedValueOnce(makeFetchResponse(200, { status: 'ok', match: matchData }));
 
       const cmd = createMatchCommand();
       await runCommand(cmd, ['status', 'match-abc', '--json']);
@@ -268,11 +271,21 @@ describe('createQueueCommand', () => {
 
     // POST /v1/matches/queue - enqueue response
     mockFetch.mockResolvedValueOnce(
-      makeFetchResponse(202, { status: 'QUEUED', gameId: 'game-1', agentId: 'agent-1', queuedAt: '2024-01-01T00:00:00Z' }),
+      makeFetchResponse(202, {
+        status: 'QUEUED',
+        gameId: 'game-1',
+        agentId: 'agent-1',
+        queuedAt: '2024-01-01T00:00:00Z',
+      }),
     );
     // GET /v1/matches/queue/status - waiting
     mockFetch.mockResolvedValueOnce(
-      makeFetchResponse(200, { status: 'QUEUED', gameId: 'game-1', agentId: 'agent-1', queuedAt: '2024-01-01T00:00:00Z' }),
+      makeFetchResponse(200, {
+        status: 'QUEUED',
+        gameId: 'game-1',
+        agentId: 'agent-1',
+        queuedAt: '2024-01-01T00:00:00Z',
+      }),
     );
     // GET /v1/matches/queue/status - matched
     mockFetch.mockResolvedValueOnce(
@@ -313,7 +326,12 @@ describe('createQueueCommand', () => {
     mockState.credentials = makeCredentials();
 
     mockFetch.mockResolvedValueOnce(
-      makeFetchResponse(202, { status: 'QUEUED', gameId: 'game-1', agentId: 'agent-1', queuedAt: '2024-01-01T00:00:00Z' }),
+      makeFetchResponse(202, {
+        status: 'QUEUED',
+        gameId: 'game-1',
+        agentId: 'agent-1',
+        queuedAt: '2024-01-01T00:00:00Z',
+      }),
     );
     mockFetch.mockResolvedValueOnce(
       makeFetchResponse(200, {
@@ -327,7 +345,7 @@ describe('createQueueCommand', () => {
     );
 
     const cmd = createQueueCommand();
-    const parsePromise = runCommand(cmd, ['--game', 'game-1', '--json']);
+    const parsePromise = runCommand(cmd, ['--game', 'game-1', '--agent', 'agent-1', '--json']);
 
     await vi.advanceTimersByTimeAsync(3000);
     await parsePromise;
@@ -341,7 +359,7 @@ describe('createQueueCommand', () => {
     mockState.credentials = null;
 
     const cmd = createQueueCommand();
-    await runCommand(cmd, ['--game', 'game-1']);
+    await runCommand(cmd, ['--game', 'game-1', '--agent', 'agent-1']);
 
     expect(mockState.exitCode).toBe(1);
     const errOutput = mockState.stderrOutput.join('\n');
@@ -355,7 +373,7 @@ describe('createQueueCommand', () => {
     );
 
     const cmd = createQueueCommand();
-    await runCommand(cmd, ['--game', 'game-1']);
+    await runCommand(cmd, ['--game', 'game-1', '--agent', 'agent-1']);
 
     expect(mockState.exitCode).toBe(1);
     const errOutput = mockState.stderrOutput.join('\n');

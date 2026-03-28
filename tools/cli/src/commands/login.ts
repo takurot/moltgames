@@ -1,71 +1,35 @@
-import { exec } from 'child_process';
+import { spawn } from 'node:child_process';
 import { Command } from 'commander';
 import { saveCredentials, clearCredentials } from '../credentials.js';
-import { HttpError } from '../http-client.js';
+import { apiRequest, HttpError } from '../http-client.js';
 import { printError, printInfo, printJson } from '../output.js';
 import type { DeviceAuthResponse, TokenResponse } from '../types.js';
 
 /** Open the given URL in the system browser based on the current platform. */
 function openBrowser(url: string): void {
-  const platform = process.platform;
-  let cmd: string;
+  let command = 'xdg-open';
+  let args = [url];
 
-  if (platform === 'darwin') {
-    cmd = `open "${url}"`;
-  } else if (platform === 'win32') {
-    cmd = `start "${url}"`;
-  } else {
-    cmd = `xdg-open "${url}"`;
+  if (process.platform === 'darwin') {
+    command = 'open';
+  } else if (process.platform === 'win32') {
+    command = 'cmd';
+    args = ['/c', 'start', '', url];
   }
 
-  exec(cmd, (_err) => {
+  const child = spawn(command, args, {
+    stdio: 'ignore',
+    detached: process.platform !== 'win32',
+  });
+  child.on('error', () => {
     // Ignore errors — browser opening is best-effort
   });
+  child.unref();
 }
 
 /** Sleep for the given number of milliseconds. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** POST to the gateway and return parsed JSON, throwing HttpError on non-2xx responses. */
-async function post<T>(baseUrl: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const init: RequestInit = {
-    method: 'POST',
-    headers,
-  };
-  if (body !== undefined) {
-    init.body = JSON.stringify(body);
-  }
-  const response = await fetch(`${baseUrl}${path}`, init);
-
-  if (!response.ok) {
-    let code = 'HTTP_ERROR';
-    let message = `HTTP ${response.status}`;
-    let retryable: boolean | undefined;
-
-    try {
-      const errorBody = (await response.json()) as {
-        code?: string;
-        message?: string;
-        retryable?: boolean;
-      };
-      code = errorBody.code ?? code;
-      message = errorBody.message ?? message;
-      retryable = errorBody.retryable;
-    } catch {
-      // ignore JSON parse errors — use defaults
-    }
-
-    throw new HttpError(response.status, {
-      code,
-      message,
-      ...(retryable !== undefined ? { retryable } : {}),
-    });
-  }
-
-  return response.json() as Promise<T>;
 }
 
 export function createLoginCommand(): Command {
@@ -78,7 +42,9 @@ export function createLoginCommand(): Command {
 
       try {
         // Step 1: Request a device code
-        const deviceAuth = await post<DeviceAuthResponse>(url, '/v1/auth/device');
+        const deviceAuth = await apiRequest<DeviceAuthResponse>(url, '/v1/auth/device', {
+          method: 'POST',
+        });
 
         // Step 2: Display the user code and verification URI
         printInfo(`\nTo authenticate, visit: ${deviceAuth.verification_uri}`);
@@ -96,8 +62,9 @@ export function createLoginCommand(): Command {
           let tokenResponse: TokenResponse;
 
           try {
-            tokenResponse = await post<TokenResponse>(url, '/v1/auth/device/token', {
-              device_code: deviceAuth.device_code,
+            tokenResponse = await apiRequest<TokenResponse>(url, '/v1/auth/device/token', {
+              method: 'POST',
+              body: { device_code: deviceAuth.device_code },
             });
           } catch (err) {
             if (err instanceof HttpError) {

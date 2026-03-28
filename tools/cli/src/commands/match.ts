@@ -92,7 +92,14 @@ export function createMatchCommand(): Command {
           printInfo(`Match ID:     ${match.matchId}`);
           printInfo(`Game ID:      ${match.gameId}`);
           printInfo(`Status:       ${match.status}`);
-          printInfo(`Created at:   ${match.createdAt}`);
+          printInfo(`Rule:         ${match.ruleId}@${match.ruleVersion}`);
+          printInfo(`Region:       ${match.region}`);
+          if (match.startedAt !== undefined) {
+            printInfo(`Started at:   ${match.startedAt}`);
+          }
+          if (match.endedAt !== undefined) {
+            printInfo(`Ended at:     ${match.endedAt}`);
+          }
           if (match.participants.length > 0) {
             printInfo('Participants:');
             for (const p of match.participants) {
@@ -127,77 +134,75 @@ export function createQueueCommand(): Command {
   const queueCmd = new Command('queue')
     .description('Join the matchmaking queue and wait for a match')
     .requiredOption('--game <gameId>', 'Game ID')
-    .option('--agent <id>', 'Agent ID')
+    .requiredOption('--agent <id>', 'Agent ID')
     .option('--url <url>', 'Gateway URL', DEFAULT_URL)
     .option('--json', 'Output as JSON');
 
-  queueCmd.action(
-    async (options: { game: string; agent?: string; url: string; json?: boolean }) => {
-      const creds = await loadCredentials();
-      if (creds === null) {
-        printError('Not logged in. Run `moltgame login` first.');
-        process.exit(1);
-      }
+  queueCmd.action(async (options: { game: string; agent: string; url: string; json?: boolean }) => {
+    const creds = await loadCredentials();
+    if (creds === null) {
+      printError('Not logged in. Run `moltgame login` first.');
+      process.exit(1);
+    }
 
-      // Register SIGINT handler to leave queue on Ctrl+C
-      let leaving = false;
-      const handleSignal = async (): Promise<void> => {
-        if (leaving) return;
-        leaving = true;
-        printInfo('Leaving queue...');
-        try {
-          await apiRequest<void>(
-            options.url,
-            `/v1/matches/queue?gameId=${encodeURIComponent(options.game)}`,
-            { method: 'DELETE', token: creds.idToken },
-          );
-        } catch {
-          // Best-effort cleanup
-        }
-        process.exit(0);
-      };
-      process.once('SIGINT', () => void handleSignal());
-
+    // Register SIGINT handler to leave queue on Ctrl+C
+    let leaving = false;
+    const handleSignal = async (): Promise<void> => {
+      if (leaving) return;
+      leaving = true;
+      printInfo('Leaving queue...');
       try {
-        // Enqueue
-        const enqueueBody: Record<string, string> = { gameId: options.game };
-        if (options.agent !== undefined) {
-          enqueueBody['agentId'] = options.agent;
-        }
-
-        await apiRequest<MatchQueueStatus>(options.url, '/v1/matches/queue', {
-          method: 'POST',
-          body: enqueueBody,
-          token: creds.idToken,
-        });
-
-        printInfo(`Joined queue for game "${options.game}". Waiting for a match...`);
-
-        // Poll until matched
-        const matched = await pollQueueStatus(options.url, options.game, creds.idToken);
-
-        if (options.json) {
-          printJson({ matchId: matched.matchId, matchedAt: matched.matchedAt });
-        } else {
-          printInfo(`Matched! Match ID: ${matched.matchId}`);
-          if (matched.matchedAt !== undefined) {
-            printInfo(`Matched at: ${matched.matchedAt}`);
-          }
-        }
-      } catch (err: unknown) {
-        if (err instanceof HttpError) {
-          printError(`${err.apiError.code}: ${err.message}`);
-        } else if (err instanceof Error) {
-          printError(err.message);
-        } else {
-          printError('An unexpected error occurred');
-        }
-        process.exit(1);
-      } finally {
-        process.off('SIGINT', handleSignal);
+        await apiRequest<void>(
+          options.url,
+          `/v1/matches/queue?gameId=${encodeURIComponent(options.game)}`,
+          { method: 'DELETE', token: creds.idToken },
+        );
+      } catch {
+        // Best-effort cleanup
       }
-    },
-  );
+      process.exit(0);
+    };
+    const sigintListener = (): void => {
+      void handleSignal();
+    };
+    process.once('SIGINT', sigintListener);
+
+    try {
+      // Enqueue
+      const enqueueBody = { gameId: options.game, agentId: options.agent };
+
+      await apiRequest<MatchQueueStatus>(options.url, '/v1/matches/queue', {
+        method: 'POST',
+        body: enqueueBody,
+        token: creds.idToken,
+      });
+
+      printInfo(`Joined queue for game "${options.game}". Waiting for a match...`);
+
+      // Poll until matched
+      const matched = await pollQueueStatus(options.url, options.game, creds.idToken);
+
+      if (options.json) {
+        printJson({ matchId: matched.matchId, matchedAt: matched.matchedAt });
+      } else {
+        printInfo(`Matched! Match ID: ${matched.matchId}`);
+        if (matched.matchedAt !== undefined) {
+          printInfo(`Matched at: ${matched.matchedAt}`);
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof HttpError) {
+        printError(`${err.apiError.code}: ${err.message}`);
+      } else if (err instanceof Error) {
+        printError(err.message);
+      } else {
+        printError('An unexpected error occurred');
+      }
+      process.exit(1);
+    } finally {
+      process.off('SIGINT', sigintListener);
+    }
+  });
 
   return queueCmd;
 }
