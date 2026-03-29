@@ -3,10 +3,12 @@ import asyncio
 import json
 import logging
 from typing import AsyncGenerator, Optional
+from urllib.parse import quote
 
 import websockets
 
 from .auth import load_credentials
+from .exceptions import AuthError
 from .exceptions import ConnectionError as MoltgamesConnectionError
 from .models import TurnEvent
 
@@ -40,13 +42,20 @@ class MoltgamesWsClient:
         Args:
             base_url: WebSocket base URL. Defaults to the production endpoint.
             access_token: Bearer token used for authentication. If omitted,
-                credentials are loaded from ``~/.moltgames/credentials.json``.
+                spectator connections attempt to load credentials from
+                ``~/.moltgames/credentials.json`` lazily.
         """
-        if access_token is None:
-            creds = load_credentials()
-            access_token = creds.id_token
         self._token = access_token
         self._base_url = base_url.rstrip("/")
+
+    def _spectator_headers(self) -> Optional[dict[str, str]]:
+        if self._token is None:
+            try:
+                self._token = load_credentials().id_token
+            except AuthError:
+                return None
+
+        return {"Authorization": f"Bearer {self._token}"}
 
     async def watch(self, match_id: str) -> AsyncGenerator[TurnEvent, None]:
         """Stream live :class:`~moltgames.models.TurnEvent` objects for *match_id*.
@@ -67,12 +76,16 @@ class MoltgamesWsClient:
         reconnect_delay_s = _DEFAULT_RECONNECT_DELAY_S
 
         while True:
-            url = f"{self._base_url}/v1/matches/{match_id}/watch?token={self._token}"
+            url = f"{self._base_url}/v1/ws/spectate?match_id={quote(match_id)}"
             draining = False
             reconnect_after_s = reconnect_delay_s
 
             try:
-                async with websockets.connect(url) as ws:
+                async with websockets.connect(
+                    url,
+                    subprotocols=["moltgame.v1"],
+                    additional_headers=self._spectator_headers(),
+                ) as ws:
                     async for raw in ws:
                         try:
                             msg = json.loads(raw)
@@ -82,13 +95,16 @@ class MoltgamesWsClient:
 
                         msg_type = msg.get("type")
 
-                        if msg_type == "turn_event":
+                        if msg_type == "match/event":
                             event_data = msg.get("event", msg)
                             yield TurnEvent.model_validate(event_data)
 
                         elif msg_type == "match/ended":
                             logger.info("Match ended: %s", msg.get("reason"))
                             return
+
+                        elif msg_type == "spectator/ready":
+                            logger.info("Spectator session ready: %s", msg.get("session_id"))
 
                         elif msg_type == "DRAINING":
                             reconnect_ms = msg.get("reconnect_after_ms", 1000)
@@ -102,7 +118,13 @@ class MoltgamesWsClient:
                         else:
                             logger.debug("Ignored message type: %s", msg_type)
 
+                if not draining:
+                    return
+
             except websockets.exceptions.ConnectionClosed as exc:
+                if exc.code in (1000, 1001):
+                    return
+
                 logger.warning("WebSocket closed unexpectedly: %s", exc)
                 if not draining:
                     # Unexpected close — apply exponential backoff
@@ -111,16 +133,11 @@ class MoltgamesWsClient:
                     )
                     reconnect_after_s = reconnect_delay_s
 
-            if draining or True:
-                await asyncio.sleep(reconnect_after_s)
-                # Reset backoff after a successful draining reconnect
-                if draining:
-                    reconnect_delay_s = _DEFAULT_RECONNECT_DELAY_S
-                continue
+            await asyncio.sleep(reconnect_after_s)
+            if draining:
+                reconnect_delay_s = _DEFAULT_RECONNECT_DELAY_S
 
-            return  # pragma: no cover
-
-    async def connect_as_agent(self, connect_token: str) -> websockets.WebSocketClientProtocol:
+    async def connect_as_agent(self, connect_token: str) -> websockets.ClientConnection:
         """Open a WebSocket connection to participate as an agent.
 
         Uses the ``connect_token`` issued by the Gateway (single-use, TTL 5 min)
@@ -138,11 +155,9 @@ class MoltgamesWsClient:
             :class:`~moltgames.exceptions.ConnectionError`: If the WebSocket
                 handshake fails.
         """
-        url = f"{self._base_url}/ws?connect_token={connect_token}"
+        url = f"{self._base_url}/v1/ws?connect_token={quote(connect_token)}"
         try:
-            cm = websockets.connect(url, subprotocols=["moltgame.v1"])
-            ws = await cm.__aenter__()
-            return ws
+            return await websockets.connect(url, subprotocols=["moltgame.v1"])
         except Exception as exc:
             raise MoltgamesConnectionError(
                 f"Failed to connect to {url}: {exc}"

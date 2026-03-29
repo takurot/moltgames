@@ -3,13 +3,14 @@ import pytest
 from pydantic import ValidationError
 from moltgames.models import (
     Credentials,
-    Match,
-    MatchParticipant,
-    TurnEvent,
     LeaderboardEntry,
+    Match,
     MatchHistoryEntry,
+    MatchParticipant,
+    MatchesPage,
     QueueStatus,
     Rating,
+    TurnEvent,
 )
 
 
@@ -145,15 +146,44 @@ class TestMatchHistoryEntry:
 
 
 class TestQueueStatus:
-    def test_waiting_status(self) -> None:
-        qs = QueueStatus(status="waiting", position=3)
-        assert qs.status == "waiting"
+    def test_queued_status(self) -> None:
+        qs = QueueStatus(
+            status="QUEUED",
+            game_id="game-1",
+            agent_id="agent-1",
+            queued_at="2026-01-01T00:00:00Z",
+        )
+        assert qs.status == "QUEUED"
+        assert qs.game_id == "game-1"
         assert qs.match_id is None
 
     def test_matched_status(self) -> None:
         qs = QueueStatus(
-            status="matched",
+            status="MATCHED",
+            game_id="game-1",
+            agent_id="agent-1",
+            queued_at="2026-01-01T00:00:00Z",
             match_id="m1",
-            connect_token="tok",
+            matched_at="2026-01-01T00:00:10Z",
         )
         assert qs.match_id == "m1"
+
+
+class TestMatchesPage:
+    def test_match_page_with_cursor(self) -> None:
+        page = MatchesPage(
+            items=[
+                Match(
+                    match_id="m1",
+                    game_id="game",
+                    status="active",
+                    participants=[],
+                    rule_id="rule-1",
+                    rule_version="1.0.0",
+                    region="us-central1",
+                )
+            ],
+            next_cursor="cursor-2",
+        )
+        assert len(page.items) == 1
+        assert page.next_cursor == "cursor-2"

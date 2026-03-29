@@ -20,7 +20,7 @@ def credentials_file(tmp_path: Path, sample_credentials: Credentials) -> Path:
     creds_dir.mkdir()
     creds_file = creds_dir / "credentials.json"
     creds_file.write_text(
-        json.dumps(sample_credentials.model_dump()),
+        json.dumps(sample_credentials.model_dump(by_alias=True)),
         encoding="utf-8",
     )
     return creds_file

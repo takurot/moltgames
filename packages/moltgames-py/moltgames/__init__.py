@@ -6,7 +6,7 @@ from .models import (
     Credentials,
     LeaderboardEntry,
     Match,
-    MatchHistoryEntry,
+    MatchesPage,
     QueueStatus,
     Rating,
     TurnEvent,
@@ -25,7 +25,7 @@ __all__ = [
     "Match",
     "TurnEvent",
     "LeaderboardEntry",
-    "MatchHistoryEntry",
+    "MatchesPage",
     "QueueStatus",
     "Rating",
     # Exceptions

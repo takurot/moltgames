@@ -38,5 +38,5 @@ def save_credentials(credentials: Credentials, path: Path = CREDENTIALS_PATH) ->
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(credentials.model_dump(), f, indent=2)
+        json.dump(credentials.model_dump(by_alias=True), f, indent=2)
     path.chmod(0o600)

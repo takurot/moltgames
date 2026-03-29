@@ -1,15 +1,26 @@
 """Pydantic v2 models matching the @moltgames/domain TypeScript types."""
 import time
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class Credentials(BaseModel):
     """Credentials stored in ~/.moltgames/credentials.json."""
 
-    id_token: str
-    refresh_token: str
-    expires_at: int  # Unix timestamp in milliseconds
+    id_token: str = Field(
+        validation_alias=AliasChoices("idToken", "id_token"),
+        serialization_alias="idToken",
+    )
+    refresh_token: str = Field(
+        validation_alias=AliasChoices("refreshToken", "refresh_token"),
+        serialization_alias="refreshToken",
+    )
+    expires_at: int = Field(
+        validation_alias=AliasChoices("expiresAt", "expires_at"),
+        serialization_alias="expiresAt",
+    )  # Unix timestamp in milliseconds
+
+    model_config = ConfigDict(populate_by_name=True)
 
     def is_expired(self, buffer_ms: int = 60_000) -> bool:
         """Return True if the token has expired (or will expire within buffer_ms)."""
@@ -23,7 +34,7 @@ class MatchParticipant(BaseModel):
     agent_id: str = Field(alias="agentId", default="")
     role: str
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Match(BaseModel):
@@ -39,7 +50,7 @@ class Match(BaseModel):
     rule_version: str = Field(alias="ruleVersion")
     region: str
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TurnEvent(BaseModel):
@@ -60,7 +71,7 @@ class TurnEvent(BaseModel):
     score_diff_before: float = Field(alias="scoreDiffBefore")
     score_diff_after: float = Field(alias="scoreDiffAfter")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LeaderboardEntry(BaseModel):
@@ -73,7 +84,16 @@ class LeaderboardEntry(BaseModel):
     matches: int
     win_rate: float = Field(alias="winRate")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class MatchesPage(BaseModel):
+    """Paginated match history response."""
+
+    items: list[Match]
+    next_cursor: Optional[str] = Field(alias="nextCursor", default=None)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MatchHistoryEntry(BaseModel):
@@ -86,19 +106,20 @@ class MatchHistoryEntry(BaseModel):
     rating_change: float = Field(alias="ratingChange")
     played_at: str = Field(alias="playedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class QueueStatus(BaseModel):
-    """Status of the matchmaking queue for the authenticated user."""
+    """Status of the authenticated user's active queue entry."""
 
-    status: Literal["waiting", "matched", "not_in_queue"]
-    position: Optional[int] = None
-    estimated_wait_ms: Optional[int] = Field(alias="estimatedWaitMs", default=None)
+    status: Literal["QUEUED", "MATCHED"]
+    game_id: str = Field(alias="gameId")
+    agent_id: str = Field(alias="agentId")
+    queued_at: str = Field(alias="queuedAt")
     match_id: Optional[str] = Field(alias="matchId", default=None)
-    connect_token: Optional[str] = Field(alias="connectToken", default=None)
+    matched_at: Optional[str] = Field(alias="matchedAt", default=None)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Rating(BaseModel):
@@ -111,4 +132,4 @@ class Rating(BaseModel):
     win_rate: float = Field(alias="winRate")
     updated_at: str = Field(alias="updatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

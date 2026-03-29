@@ -1,15 +1,16 @@
 """Tests for the WebSocket client."""
 import asyncio
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from moltgames.ws_client import MoltgamesWsClient
 from moltgames.models import TurnEvent
 
 
 def make_turn_event_msg(turn: int = 1) -> str:
     return json.dumps({
-        "type": "turn_event",
+        "type": "match/event",
         "event": {
             "eventId": f"e{turn}",
             "matchId": "m1",
@@ -33,6 +34,10 @@ def make_match_ended_msg() -> str:
     return json.dumps({"type": "match/ended", "reason": "FINISHED"})
 
 
+def make_spectator_ready_msg() -> str:
+    return json.dumps({"type": "spectator/ready", "session_id": "session-1"})
+
+
 def make_draining_msg(reconnect_after_ms: int = 0) -> str:
     return json.dumps({"type": "DRAINING", "reconnect_after_ms": reconnect_after_ms})
 
@@ -52,7 +57,12 @@ def make_mock_ws(messages: list[str]) -> MagicMock:
 
 class TestMoltgamesWsClientWatch:
     async def test_watch_yields_turn_events(self) -> None:
-        messages = [make_turn_event_msg(1), make_turn_event_msg(2), make_match_ended_msg()]
+        messages = [
+            make_spectator_ready_msg(),
+            make_turn_event_msg(1),
+            make_turn_event_msg(2),
+            make_match_ended_msg(),
+        ]
         mock_ws = make_mock_ws(messages)
 
         with patch("moltgames.ws_client.websockets.connect", return_value=mock_ws):
@@ -122,36 +132,59 @@ class TestMoltgamesWsClientWatch:
 
         assert len(events) == 1
 
+    async def test_watch_stops_on_clean_close(self) -> None:
+        mock_ws = make_mock_ws([])
+
+        with patch("moltgames.ws_client.websockets.connect", return_value=mock_ws) as connect_mock:
+            client = MoltgamesWsClient(base_url="wss://api.moltgames.io", access_token="tok")
+            events = []
+            async for event in client.watch("m1"):
+                events.append(event)
+
+        assert events == []
+        assert connect_mock.call_count == 1
+
+    async def test_watch_uses_spectator_endpoint_and_auth_header(self) -> None:
+        mock_ws = make_mock_ws([make_match_ended_msg()])
+        connect_calls: list[tuple[str, dict]] = []
+
+        def capture_connect(url, **kwargs):
+            connect_calls.append((url, kwargs))
+            return mock_ws
+
+        with patch("moltgames.ws_client.websockets.connect", side_effect=capture_connect):
+            client = MoltgamesWsClient(base_url="wss://api.moltgames.io", access_token="tok")
+            async for _ in client.watch("match-1"):
+                pass
+
+        assert len(connect_calls) == 1
+        url, kwargs = connect_calls[0]
+        assert url.endswith("/v1/ws/spectate?match_id=match-1")
+        assert kwargs["subprotocols"] == ["moltgame.v1"]
+        assert kwargs["additional_headers"] == {"Authorization": "Bearer tok"}
+
 
 class TestMoltgamesWsClientConnectAsAgent:
     async def test_connect_as_agent_uses_connect_token(self) -> None:
-        mock_ws = MagicMock()
-        mock_ws.__aenter__ = AsyncMock(return_value=mock_ws)
-        mock_ws.__aexit__ = AsyncMock(return_value=False)
-
         connect_calls: list[str] = []
 
-        def capture_connect(url, **kwargs):
+        async def capture_connect(url, **kwargs):
             connect_calls.append(url)
-            return mock_ws
+            return MagicMock()
 
         with patch("moltgames.ws_client.websockets.connect", side_effect=capture_connect):
             client = MoltgamesWsClient(base_url="wss://api.moltgames.io", access_token="tok")
             await client.connect_as_agent("my-connect-token")
 
         assert len(connect_calls) == 1
-        assert "connect_token=my-connect-token" in connect_calls[0]
+        assert connect_calls[0].endswith("/v1/ws?connect_token=my-connect-token")
 
     async def test_connect_as_agent_uses_moltgame_protocol(self) -> None:
-        mock_ws = MagicMock()
-        mock_ws.__aenter__ = AsyncMock(return_value=mock_ws)
-        mock_ws.__aexit__ = AsyncMock(return_value=False)
-
         connect_kwargs_list: list[dict] = []
 
-        def capture_connect(url, **kwargs):
+        async def capture_connect(url, **kwargs):
             connect_kwargs_list.append(kwargs)
-            return mock_ws
+            return MagicMock()
 
         with patch("moltgames.ws_client.websockets.connect", side_effect=capture_connect):
             client = MoltgamesWsClient(base_url="wss://api.moltgames.io", access_token="tok")

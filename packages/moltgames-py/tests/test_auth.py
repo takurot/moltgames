@@ -38,7 +38,24 @@ class TestSaveCredentials:
         save_credentials(sample_credentials, dest)
         assert dest.exists()
         data = json.loads(dest.read_text())
-        assert data["id_token"] == "test-id-token"
+        assert data["idToken"] == "test-id-token"
+
+    def test_loads_cli_credential_shape(self, tmp_path: Path) -> None:
+        credential_file = tmp_path / "credentials.json"
+        credential_file.write_text(
+            json.dumps(
+                {
+                    "idToken": "cli-id-token",
+                    "refreshToken": "cli-refresh-token",
+                    "expiresAt": 9999999999000,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        creds = load_credentials(credential_file)
+        assert creds.id_token == "cli-id-token"
+        assert creds.refresh_token == "cli-refresh-token"
 
     def test_creates_parent_directory(self, tmp_path: Path, sample_credentials: Credentials) -> None:
         dest = tmp_path / "new_dir" / "sub" / "credentials.json"
