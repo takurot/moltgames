@@ -72,6 +72,7 @@ import {
 } from './spectator/latency-recorder.js';
 import { RedisMatchActionRateLimiter } from './websocket/match-action-rate-limiter.js';
 import { sendRestApiError } from './api-error.js';
+import { registerKpiRoutes } from './kpi/routes.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -1236,6 +1237,9 @@ export const createApp = async (options: AppOptions = {}) => {
 
   app.post('/v1/tokens', handleConnectTokenRequest);
   app.delete('/v1/tokens/:tokenId', handleConnectTokenRequest);
+
+  // KPI measurement routes (PR-18b)
+  registerKpiRoutes(app);
 
   app.post('/v1/auth/device', async (_request, reply) => {
     const result = await deviceAuthService.issueAuthorization();
