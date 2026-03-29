@@ -128,6 +128,11 @@ describe('SelfPlayDetector', () => {
     expect(result.blocked).toBe(false);
   });
 
+  it('does not block when IP information is missing for both participants', () => {
+    const result = detector.checkEnqueue('uid-2', '', [{ uid: 'uid-1', ip: '' }]);
+    expect(result.blocked).toBe(false);
+  });
+
   it('blocks same uid', () => {
     const result = detector.checkEnqueue('uid-1', '5.6.7.8', [{ uid: 'uid-1', ip: '1.2.3.4' }]);
     expect(result.blocked).toBe(true);
@@ -249,6 +254,33 @@ describe('verifyEventChain', () => {
         hash: h1,
         actionData: 'TAMPERED-action-1',
         prevHash: h0,
+      },
+    ];
+
+    const result = verifyEventChain(events);
+    expect(result.valid).toBe(false);
+    expect(result.firstInvalidIndex).toBe(1);
+  });
+
+  it('detects broken prevHash linkage even if each hash is internally valid', () => {
+    const h0 = computeEventHash(
+      '0000000000000000000000000000000000000000000000000000000000000000',
+      'action-0',
+    );
+    const detachedPrevHash =
+      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+    const h1 = computeEventHash(detachedPrevHash, 'action-1');
+
+    const events = [
+      {
+        hash: h0,
+        actionData: 'action-0',
+        prevHash: '0000000000000000000000000000000000000000000000000000000000000000',
+      },
+      {
+        hash: h1,
+        actionData: 'action-1',
+        prevHash: detachedPrevHash,
       },
     ];
 

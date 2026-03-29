@@ -118,7 +118,11 @@ export class SelfPlayDetector {
         };
       }
 
-      if (participant.ip === ip) {
+      if (
+        ip.trim().length > 0 &&
+        participant.ip.trim().length > 0 &&
+        participant.ip === ip
+      ) {
         return {
           blocked: true,
           reason: `ip ${ip} is already participating in this match`,
@@ -160,6 +164,12 @@ export function verifyEventChain(events: readonly EventChainEntry[]): ChainVerif
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
     if (event === undefined) continue;
+
+    const previousEvent = i === 0 ? undefined : events[i - 1];
+    if (previousEvent !== undefined && event.prevHash !== previousEvent.hash) {
+      return { valid: false, firstInvalidIndex: i };
+    }
+
     const expected = computeEventHash(event.prevHash, event.actionData);
     if (event.hash !== expected) {
       return { valid: false, firstInvalidIndex: i };
