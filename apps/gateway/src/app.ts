@@ -72,6 +72,7 @@ import {
 } from './spectator/latency-recorder.js';
 import { RedisMatchActionRateLimiter } from './websocket/match-action-rate-limiter.js';
 import { sendRestApiError } from './api-error.js';
+import { registerAdminRoutes } from './routes/admin.js';
 
 class MockFirebaseVerifier implements FirebaseIdTokenVerifier {
   async verifyIdToken(_idToken: string): Promise<VerifiedFirebaseIdToken> {
@@ -1842,6 +1843,12 @@ export const createApp = async (options: AppOptions = {}) => {
       });
     },
   );
+
+  const adminRouteRedis = process.env.NODE_ENV === 'test' && !options.redis ? undefined : redis;
+  await registerAdminRoutes(app, {
+    ...(internalTaskAuthToken !== undefined ? { internalTaskAuthToken } : {}),
+    ...(adminRouteRedis !== undefined ? { redis: adminRouteRedis } : {}),
+  });
 
   app.addHook('onClose', async () => {
     for (const session of sessionsById.values()) {
