@@ -59,6 +59,7 @@ const makeStubMatches = (count: number): MatchSummary[] =>
     queueType: 'ranked',
     ratingBracket: '1400-1600',
     winnerId: i % 3 !== 0 ? 'agent-a' : null,
+    winnerSeat: i % 2 === 0 ? 'first' : 'second',
     finalScores: { 'agent-a': 50 + (i % 10), 'agent-b': 50 - (i % 10) },
     durationMs: 90_000 + i * 1_000,
     createdAt: new Date(Date.now() - i * 3_600_000).toISOString(),
@@ -69,6 +70,7 @@ const makeStubTurnEvents = (): TurnEventSummary[] => {
   return Array.from({ length: 40 }, (_, i) => ({
     matchId: `stub-match-${i % 10}`,
     actionType: actions[i % actions.length] ?? 'attack',
+    seat: i % 2 === 0 ? 'first' : 'second',
     scoreDiffBefore: i % 5,
     scoreDiffAfter: (i % 5) + 1,
   }));

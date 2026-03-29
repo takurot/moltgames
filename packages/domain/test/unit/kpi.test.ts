@@ -40,7 +40,7 @@ describe('KPI name constants', () => {
   });
 
   it('exposes the six guardrail KPI names', () => {
-    expect(GUARDRAIL_KPI_NAMES).toEqual(['MCR', 'FSWG', 'DSS', 'SR60', 'RCR80', 'DBT']);
+    expect(GUARDRAIL_KPI_NAMES).toEqual(['MCR', 'TTFC', 'FSWG', 'DSS', 'SR60', 'RCR80', 'DBT']);
   });
 });
 

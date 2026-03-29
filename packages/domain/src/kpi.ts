@@ -23,7 +23,7 @@
 export const PRIMARY_KPI_NAMES = ['CMR', 'CWR', 'ADI', 'RIR24'] as const;
 export type PrimaryKpiName = (typeof PRIMARY_KPI_NAMES)[number];
 
-export const GUARDRAIL_KPI_NAMES = ['MCR', 'FSWG', 'DSS', 'SR60', 'RCR80', 'DBT'] as const;
+export const GUARDRAIL_KPI_NAMES = ['MCR', 'TTFC', 'FSWG', 'DSS', 'SR60', 'RCR80', 'DBT'] as const;
 export type GuardrailKpiName = (typeof GUARDRAIL_KPI_NAMES)[number];
 
 export type KpiName = PrimaryKpiName | GuardrailKpiName;

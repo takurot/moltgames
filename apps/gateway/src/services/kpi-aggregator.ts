@@ -12,6 +12,7 @@ export interface MatchSummary {
   readonly ratingBracket: string;
   /** null means draw */
   readonly winnerId: string | null;
+  readonly winnerSeat: 'first' | 'second' | null;
   /** agentId → numeric score */
   readonly finalScores: Readonly<Record<string, number>>;
   readonly durationMs: number;
@@ -21,12 +22,14 @@ export interface MatchSummary {
 export interface TurnEventSummary {
   readonly matchId: string;
   readonly actionType: string;
+  readonly seat: 'first' | 'second';
   readonly scoreDiffBefore: number;
   readonly scoreDiffAfter: number;
 }
 
 export interface ReturnEvent {
   readonly uid: string;
+  readonly previousMatchId: string;
   readonly returnedAt: string;
   readonly previousMatchAt: string;
 }
@@ -92,6 +95,48 @@ const shannonEntropy = (freqMap: Readonly<Record<string, number>>): number => {
   }, 0);
 };
 
+/** Normalized Shannon entropy in the range [0, 1]. */
+const normalizedEntropy = (freqMap: Readonly<Record<string, number>>): number => {
+  const actionTypes = Object.keys(freqMap).length;
+  if (actionTypes <= 1) return 0;
+  return shannonEntropy(freqMap) / Math.log2(actionTypes);
+};
+
+const percentile = (sortedValues: readonly number[], fraction: number): number => {
+  if (sortedValues.length === 0) return 0;
+
+  const index = (sortedValues.length - 1) * fraction;
+  const lowerIndex = Math.floor(index);
+  const upperIndex = Math.ceil(index);
+  const lower = sortedValues[lowerIndex] ?? sortedValues[sortedValues.length - 1] ?? 0;
+  const upper = sortedValues[upperIndex] ?? lower;
+
+  if (lowerIndex === upperIndex) {
+    return lower;
+  }
+
+  const weight = index - lowerIndex;
+  return lower + (upper - lower) * weight;
+};
+
+const bootstrapCI = <T>(
+  items: readonly T[],
+  estimator: (sample: readonly T[]) => number,
+  iterations = 500,
+): readonly [number, number] => {
+  if (items.length === 0) return [0, 0];
+
+  const estimates = Array.from({ length: iterations }, () => {
+    const sample = Array.from(
+      { length: items.length },
+      () => items[Math.floor(Math.random() * items.length)]!,
+    );
+    return estimator(sample);
+  }).sort((a, b) => a - b);
+
+  return [percentile(estimates, 0.025), percentile(estimates, 0.975)];
+};
+
 // ---------------------------------------------------------------------------
 // KpiAggregator
 // ---------------------------------------------------------------------------
@@ -114,24 +159,35 @@ export class KpiAggregator {
   }
 
   /**
-   * Close Win Rate — fraction of matches where the winner won by ≤20% of max score.
+   * Comeback Win Rate — fraction of matches where the eventual winner was
+   * trailing at some point before winning.
    */
-  computeCWR(matches: readonly MatchSummary[]): number {
+  computeCWR(matches: readonly MatchSummary[], turnEvents: readonly TurnEventSummary[]): number {
     if (matches.length === 0) return 0;
 
-    const closeWins = matches.filter((m) => {
-      if (m.winnerId === null) return false;
-      const max = maxScore(m.finalScores);
-      if (max === 0) return false;
-      const diff = scoreDiff(m.finalScores);
-      return diff / max <= 0.2;
+    const eventsByMatch = new Map<string, TurnEventSummary[]>();
+    for (const event of turnEvents) {
+      const bucket = eventsByMatch.get(event.matchId) ?? [];
+      bucket.push(event);
+      eventsByMatch.set(event.matchId, bucket);
+    }
+
+    const comebackWins = matches.filter((match) => {
+      if (match.winnerId === null || match.winnerSeat === null) return false;
+
+      const events = eventsByMatch.get(match.matchId) ?? [];
+      return events.some((event) => {
+        const winnerPerspectiveScoreDiff =
+          event.seat === match.winnerSeat ? event.scoreDiffBefore : -event.scoreDiffBefore;
+        return winnerPerspectiveScoreDiff < 0;
+      });
     });
 
-    return closeWins.length / matches.length;
+    return comebackWins.length / matches.length;
   }
 
   /**
-   * Action Diversity Index — Shannon entropy (log₂) of action type distribution.
+   * Action Diversity Index — normalized Shannon entropy of action types.
    */
   computeADI(turnEvents: readonly TurnEventSummary[]): number {
     if (turnEvents.length === 0) return 0;
@@ -141,7 +197,7 @@ export class KpiAggregator {
       freqMap[event.actionType] = (freqMap[event.actionType] ?? 0) + 1;
     }
 
-    return shannonEntropy(freqMap);
+    return normalizedEntropy(freqMap);
   }
 
   /**
@@ -152,14 +208,26 @@ export class KpiAggregator {
     if (matches.length === 0) return 0;
 
     const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    const knownMatchIds = new Set(matches.map((match) => match.matchId));
 
-    const qualifyingCount = returnEvents.filter((re) => {
-      const prevMs = new Date(re.previousMatchAt).getTime();
-      const retMs = new Date(re.returnedAt).getTime();
-      return retMs - prevMs <= twentyFourHoursMs;
-    }).length;
+    const qualifyingMatchIds = new Set(
+      returnEvents.flatMap((re) => {
+        const prevMs = new Date(re.previousMatchAt).getTime();
+        const retMs = new Date(re.returnedAt).getTime();
+        const elapsedMs = retMs - prevMs;
+        if (
+          elapsedMs < 0 ||
+          elapsedMs > twentyFourHoursMs ||
+          !knownMatchIds.has(re.previousMatchId)
+        ) {
+          return [];
+        }
 
-    return qualifyingCount / matches.length;
+        return [re.previousMatchId];
+      }),
+    );
+
+    return qualifyingMatchIds.size / matches.length;
   }
 
   /**
@@ -171,7 +239,7 @@ export class KpiAggregator {
     const n = matches.length;
 
     const cmr = this.computeCMR(matches);
-    const cwr = this.computeCWR(matches);
+    const cwr = this.computeCWR(matches, turnEvents);
     const adi = this.computeADI(turnEvents);
     const rir24 = this.computeRIR24(matches, returnEvents);
 
@@ -187,14 +255,10 @@ export class KpiAggregator {
       RIR24: rir24,
     };
 
-    // ADI confidence: simple ±5% of value (entropy has no standard Wilson CI)
-    const adiLo = Math.max(0, adi * 0.95);
-    const adiHi = adi * 1.05;
-
     const confidence: Record<string, readonly [number, number]> = {
       CMR: wilsonCI(cmrCount, n),
       CWR: wilsonCI(cwrCount, n),
-      ADI: [adiLo, adiHi],
+      ADI: bootstrapCI(turnEvents, (sample) => this.computeADI(sample)),
       RIR24: wilsonCI(rir24Count, n),
     };
 

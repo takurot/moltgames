@@ -18,6 +18,7 @@ const makeMatch = (overrides: Partial<MatchSummary> = {}): MatchSummary => ({
   queueType: 'ranked',
   ratingBracket: '1400-1600',
   winnerId: 'agent-a',
+  winnerSeat: 'first',
   finalScores: { 'agent-a': 60, 'agent-b': 40 },
   durationMs: 120_000,
   createdAt: '2026-03-01T10:00:00.000Z',
@@ -27,6 +28,7 @@ const makeMatch = (overrides: Partial<MatchSummary> = {}): MatchSummary => ({
 const makeTurnEvent = (overrides: Partial<TurnEventSummary> = {}): TurnEventSummary => ({
   matchId: 'match-1',
   actionType: 'attack',
+  seat: 'first',
   scoreDiffBefore: 0,
   scoreDiffAfter: 5,
   ...overrides,
@@ -34,6 +36,7 @@ const makeTurnEvent = (overrides: Partial<TurnEventSummary> = {}): TurnEventSumm
 
 const makeReturnEvent = (overrides: Partial<ReturnEvent> = {}): ReturnEvent => ({
   uid: 'user-1',
+  previousMatchId: 'match-1',
   returnedAt: '2026-03-02T10:00:00.000Z',
   previousMatchAt: '2026-03-01T10:00:00.000Z', // 24h later → qualifies
   ...overrides,
@@ -72,28 +75,35 @@ describe('KpiAggregator.computeCMR', () => {
 });
 
 // ---------------------------------------------------------------------------
-// computeCWR – Close Win Rate
+// computeCWR – Comeback Win Rate
 // ---------------------------------------------------------------------------
 
 describe('KpiAggregator.computeCWR', () => {
   const agg = new KpiAggregator();
 
   it('returns 0 for an empty match list', () => {
-    expect(agg.computeCWR([])).toBe(0);
+    expect(agg.computeCWR([], [])).toBe(0);
   });
 
-  it('counts wins where winner won by ≤20% of max possible score', () => {
-    // max = max(scores) = 60; diff = 20; 20/60 ≈ 33% → NOT close
-    const notClose = makeMatch({ finalScores: { 'agent-a': 60, 'agent-b': 40 } });
-    // max = 55; diff = 5; 5/55 ≈ 9% → close
-    const close = makeMatch({ finalScores: { 'agent-a': 55, 'agent-b': 50 } });
+  it('counts matches where the eventual winner was trailing before winning', () => {
+    const comeback = makeMatch({ matchId: 'm1', winnerSeat: 'first' });
+    const comebackEvents = [
+      makeTurnEvent({ matchId: 'm1', seat: 'first', scoreDiffBefore: -2, scoreDiffAfter: 1 }),
+    ];
 
-    expect(agg.computeCWR([notClose, close])).toBeCloseTo(0.5);
+    const frontRun = makeMatch({ matchId: 'm2', winnerSeat: 'second', winnerId: 'agent-b' });
+    const frontRunEvents = [
+      makeTurnEvent({ matchId: 'm2', seat: 'second', scoreDiffBefore: 3, scoreDiffAfter: 4 }),
+    ];
+
+    expect(agg.computeCWR([comeback, frontRun], [...comebackEvents, ...frontRunEvents])).toBeCloseTo(
+      0.5,
+    );
   });
 
-  it('handles draw (no winnerId) by treating it as non-close win', () => {
-    const draw = makeMatch({ winnerId: null, finalScores: { a: 50, b: 50 } });
-    expect(agg.computeCWR([draw])).toBe(0);
+  it('handles draw (no winnerId) by treating it as non-comeback win', () => {
+    const draw = makeMatch({ winnerId: null, winnerSeat: null, finalScores: { a: 50, b: 50 } });
+    expect(agg.computeCWR([draw], [makeTurnEvent({ scoreDiffBefore: -1 })])).toBe(0);
   });
 });
 
@@ -116,15 +126,14 @@ describe('KpiAggregator.computeADI', () => {
     expect(agg.computeADI(events)).toBeCloseTo(0);
   });
 
-  it('returns log2(n) for n equally-distributed action types', () => {
+  it('returns 1 for equally-distributed action types after normalization', () => {
     const events = [
       makeTurnEvent({ actionType: 'attack' }),
       makeTurnEvent({ actionType: 'defend' }),
       makeTurnEvent({ actionType: 'negotiate' }),
       makeTurnEvent({ actionType: 'flee' }),
     ];
-    // H = log2(4) = 2
-    expect(agg.computeADI(events)).toBeCloseTo(2, 3);
+    expect(agg.computeADI(events)).toBeCloseTo(1, 3);
   });
 
   it('produces a non-zero entropy for two different action types (50/50)', () => {
@@ -159,6 +168,7 @@ describe('KpiAggregator.computeRIR24', () => {
     const returnEvents: ReturnEvent[] = [
       {
         uid: 'user-1',
+        previousMatchId: 'm1',
         previousMatchAt: '2026-03-01T10:00:00.000Z',
         returnedAt: '2026-03-02T09:00:00.000Z', // 23h later → qualifies
       },
@@ -172,11 +182,22 @@ describe('KpiAggregator.computeRIR24', () => {
     const returnEvents: ReturnEvent[] = [
       {
         uid: 'user-1',
+        previousMatchId: 'm1',
         previousMatchAt: '2026-03-01T10:00:00.000Z',
         returnedAt: '2026-03-02T11:00:00.000Z', // 25h later → does not qualify
       },
     ];
     expect(agg.computeRIR24(matches, returnEvents)).toBe(0);
+  });
+
+  it('counts each prior match at most once even if multiple participants return', () => {
+    const matches = [makeMatch({ matchId: 'm1' })];
+    const returnEvents: ReturnEvent[] = [
+      makeReturnEvent({ uid: 'user-1', previousMatchId: 'm1' }),
+      makeReturnEvent({ uid: 'user-2', previousMatchId: 'm1' }),
+    ];
+
+    expect(agg.computeRIR24(matches, returnEvents)).toBe(1);
   });
 });
 
@@ -218,6 +239,8 @@ describe('KpiAggregator.aggregate', () => {
     expect(typeof snapshot.metrics.CWR).toBe('number');
     expect(typeof snapshot.metrics.ADI).toBe('number');
     expect(typeof snapshot.metrics.RIR24).toBe('number');
+    expect(snapshot.metrics.ADI).toBeGreaterThanOrEqual(0);
+    expect(snapshot.metrics.ADI).toBeLessThanOrEqual(1);
     expect(typeof snapshot.computedAt).toBe('string');
   });
 
@@ -244,5 +267,9 @@ describe('KpiAggregator.aggregate', () => {
       expect(ci![0]).toBeLessThanOrEqual(snapshot.metrics[name]!);
       expect(ci![1]).toBeGreaterThanOrEqual(snapshot.metrics[name]!);
     }
+
+    const adiCi = snapshot.confidence.ADI;
+    expect(adiCi[0]).toBeGreaterThanOrEqual(0);
+    expect(adiCi[1]).toBeLessThanOrEqual(1);
   });
 });
