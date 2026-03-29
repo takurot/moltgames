@@ -118,11 +118,7 @@ export class SelfPlayDetector {
         };
       }
 
-      if (
-        ip.trim().length > 0 &&
-        participant.ip.trim().length > 0 &&
-        participant.ip === ip
-      ) {
+      if (ip.trim().length > 0 && participant.ip.trim().length > 0 && participant.ip === ip) {
         return {
           blocked: true,
           reason: `ip ${ip} is already participating in this match`,

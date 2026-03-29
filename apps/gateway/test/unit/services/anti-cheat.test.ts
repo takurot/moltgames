@@ -267,8 +267,7 @@ describe('verifyEventChain', () => {
       '0000000000000000000000000000000000000000000000000000000000000000',
       'action-0',
     );
-    const detachedPrevHash =
-      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+    const detachedPrevHash = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
     const h1 = computeEventHash(detachedPrevHash, 'action-1');
 
     const events = [
