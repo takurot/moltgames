@@ -96,9 +96,9 @@ describe('KpiAggregator.computeCWR', () => {
       makeTurnEvent({ matchId: 'm2', seat: 'second', scoreDiffBefore: 3, scoreDiffAfter: 4 }),
     ];
 
-    expect(agg.computeCWR([comeback, frontRun], [...comebackEvents, ...frontRunEvents])).toBeCloseTo(
-      0.5,
-    );
+    expect(
+      agg.computeCWR([comeback, frontRun], [...comebackEvents, ...frontRunEvents]),
+    ).toBeCloseTo(0.5);
   });
 
   it('handles draw (no winnerId) by treating it as non-comeback win', () => {
