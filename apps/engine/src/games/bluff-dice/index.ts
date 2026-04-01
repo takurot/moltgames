@@ -143,7 +143,10 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
         return this.applyMakeBid(state, activeBidder, { count: 1, face: 1 });
       }
       if (state.currentBid.count < 10) {
-        return this.applyMakeBid(state, activeBidder, { count: state.currentBid.count + 1, face: 1 });
+        return this.applyMakeBid(state, activeBidder, {
+          count: state.currentBid.count + 1,
+          face: 1,
+        });
       }
       // count === 10: no valid bid possible, force call_bluff
       return this.applyCallBluff(state, activeBidder);
@@ -246,7 +249,10 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
           retryable: true,
         };
       }
-      if (state.currentBid !== null && !this.isBidHigher(state.currentBid, { count, face, bidder: actor })) {
+      if (
+        state.currentBid !== null &&
+        !this.isBidHigher(state.currentBid, { count, face, bidder: actor })
+      ) {
         return {
           valid: false,
           error: `Your bid must be strictly higher than the current bid (count: ${state.currentBid.count}, face: ${state.currentBid.face}).`,
@@ -334,7 +340,11 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
     return null;
   }
 
-  getTurnEventAnalytics(state: BluffDiceState, actorId: string, _action: Action): TurnEventAnalytics {
+  getTurnEventAnalytics(
+    state: BluffDiceState,
+    actorId: string,
+    _action: Action,
+  ): TurnEventAnalytics {
     const playerIdx = state.agentIds.indexOf(actorId);
     const opponentIdx = playerIdx === 0 ? 1 : 0;
     const myChips = state.players[playerIdx]?.chips ?? 0;
@@ -368,9 +378,7 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
       betPlaced: true,
     };
     const players: [BluffDicePlayerState, BluffDicePlayerState] =
-      playerIdx === 0
-        ? [updatedPlayer, state.players[1]]
-        : [state.players[0], updatedPlayer];
+      playerIdx === 0 ? [updatedPlayer, state.players[1]] : [state.players[0], updatedPlayer];
 
     const bothBet = players[0].betPlaced && players[1].betPlaced;
 
@@ -447,9 +455,7 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
       chips: winnerPlayer.chips + state.pot,
     };
     const updatedPlayers: [BluffDicePlayerState, BluffDicePlayerState] =
-      winnerIdx === 0
-        ? [updatedWinner, updatedLoser]
-        : [updatedLoser, updatedWinner];
+      winnerIdx === 0 ? [updatedWinner, updatedLoser] : [updatedLoser, updatedWinner];
 
     // Check if game ends
     const loserHitZero = updatedLoser.chips === 0;
@@ -478,7 +484,11 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
     const gameOver = lastRound || loserHitZero;
 
     if (gameOver) {
-      const terminationResult = this.computeTerminationFromPlayers(updatedPlayers, state.agentIds, 'All rounds completed');
+      const terminationResult = this.computeTerminationFromPlayers(
+        updatedPlayers,
+        state.agentIds,
+        'All rounds completed',
+      );
       return {
         ...state,
         players: updatedPlayers,
@@ -532,11 +542,18 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
   }
 
   private isBidHigher(current: BluffDiceBid, proposed: BluffDiceBid): boolean {
-    return proposed.count > current.count || (proposed.count === current.count && proposed.face > current.face);
+    return (
+      proposed.count > current.count ||
+      (proposed.count === current.count && proposed.face > current.face)
+    );
   }
 
   private computeTermination(state: BluffDiceState): TerminationResult {
-    return this.computeTerminationFromPlayers(state.players, state.agentIds, 'All rounds completed');
+    return this.computeTerminationFromPlayers(
+      state.players,
+      state.agentIds,
+      'All rounds completed',
+    );
   }
 
   private computeTerminationFromPlayers(

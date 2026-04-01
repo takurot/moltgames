@@ -193,7 +193,11 @@ describe('BluffDiceGame', () => {
         actor: secondBidder,
       }).state as BluffDiceState;
       // Now firstBidder is activeBidder again; secondBidder (lastBidder) is NOT activeBidder
-      const tools = plugin.getAvailableTools(afterSecondBid, afterSecondBid.activeBidder!, 'default');
+      const tools = plugin.getAvailableTools(
+        afterSecondBid,
+        afterSecondBid.activeBidder!,
+        'default',
+      );
       expect(tools.map((t) => t.name)).toContain('call_bluff'); // first bidder can call
       // secondBidder is not active, so this test verifies via activeBidder check
     });
