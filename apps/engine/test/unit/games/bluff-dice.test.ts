@@ -582,7 +582,7 @@ describe('BluffDiceGame', () => {
 
     it('chips change correctly after resolution', () => {
       const betAmount = 3;
-      const { state, bidder, challenger } = setupResolution(plugin, {
+      const { state, challenger } = setupResolution(plugin, {
         bidCount: 10,
         bidFace: 6,
         betAmount,
@@ -597,12 +597,13 @@ describe('BluffDiceGame', () => {
       });
       const afterState = after as BluffDiceState;
       const result = afterState.roundHistory[0];
-      const pot = betAmount * 2;
-      // Winner chips increase by pot, loser chips decrease by their bet
       const winnerIdx = afterState.agentIds.indexOf(result.winner);
       const loserIdx = afterState.agentIds.indexOf(result.loser);
       const chipsBefore = [chipsBefore0, chipsBefore1];
-      expect(afterState.players[winnerIdx].chips).toBe(chipsBefore[winnerIdx] + pot);
+      const totalBefore = chipsBefore0 + chipsBefore1;
+      const totalAfter = afterState.players[0].chips + afterState.players[1].chips;
+      expect(totalAfter).toBe(totalBefore);
+      expect(afterState.players[winnerIdx].chips).toBe(chipsBefore[winnerIdx] + betAmount);
       expect(afterState.players[loserIdx].chips).toBe(chipsBefore[loserIdx] - betAmount);
     });
 
@@ -818,7 +819,7 @@ describe('BluffDiceGame', () => {
       expect(after.currentBid!.face).toBe(1);
     });
 
-    it('bidding phase with currentBid: forces count+1 bid', () => {
+    it('bidding phase with currentBid: forces next strictly higher bid', () => {
       const state = transitionToBidding(plugin, 42, 3, CUSTOM_RULE);
       const afterBid = plugin.applyAction(state, {
         tool: 'make_bid',
@@ -827,11 +828,28 @@ describe('BluffDiceGame', () => {
         actor: state.activeBidder!,
       }).state as BluffDiceState;
       const after = plugin.consumeTurn(afterBid) as BluffDiceState;
-      expect(after.currentBid!.count).toBe(4);
-      expect(after.currentBid!.face).toBe(1);
+      expect(after.currentBid!.count).toBe(3);
+      expect(after.currentBid!.face).toBe(5);
     });
 
-    it('bidding phase with count=10: forces call_bluff', () => {
+    it('bidding phase with count=10 and face<6: still forces a legal raise', () => {
+      const state = transitionToBidding(plugin, 42, 3, CUSTOM_RULE);
+      const afterBid = plugin.applyAction(state, {
+        tool: 'make_bid',
+        request_id: 'r',
+        args: { count: 10, face: 1 },
+        actor: state.activeBidder!,
+      }).state as BluffDiceState;
+      const after = plugin.consumeTurn(afterBid) as BluffDiceState;
+      expect(after.currentBid).toEqual({
+        count: 10,
+        face: 2,
+        bidder: afterBid.activeBidder!,
+      });
+      expect(after.roundHistory).toHaveLength(0);
+    });
+
+    it('bidding phase with max bid (10,6): forces call_bluff', () => {
       const state = transitionToBidding(plugin, 42, 3, CUSTOM_RULE);
       const afterBid = plugin.applyAction(state, {
         tool: 'make_bid',
@@ -840,7 +858,6 @@ describe('BluffDiceGame', () => {
         actor: state.activeBidder!,
       }).state as BluffDiceState;
       const after = plugin.consumeTurn(afterBid) as BluffDiceState;
-      // Should have triggered resolution: phase changed or roundHistory has an entry
       expect(after.roundHistory.length).toBeGreaterThan(0);
     });
   });

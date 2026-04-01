@@ -74,6 +74,8 @@ const getNumberParameter = (
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 };
 
+const MAX_BID_COUNT = 10;
+
 const pickTools = (
   tools: readonly MCPToolDefinition[],
   names: readonly string[],
@@ -138,17 +140,15 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
 
     if (state.phase === 'bidding') {
       const activeBidder = state.activeBidder ?? state.firstBidder;
-      // If there's no current bid or count < 10: force minimum valid bid
       if (state.currentBid === null) {
         return this.applyMakeBid(state, activeBidder, { count: 1, face: 1 });
       }
-      if (state.currentBid.count < 10) {
-        return this.applyMakeBid(state, activeBidder, {
-          count: state.currentBid.count + 1,
-          face: 1,
-        });
+
+      const nextBid = this.getNextBid(state.currentBid);
+      if (nextBid !== null) {
+        return this.applyMakeBid(state, activeBidder, nextBid);
       }
-      // count === 10: no valid bid possible, force call_bluff
+
       return this.applyCallBluff(state, activeBidder);
     }
 
@@ -237,7 +237,7 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
         typeof count !== 'number' ||
         !Number.isInteger(count) ||
         count < 1 ||
-        count > 10 ||
+        count > MAX_BID_COUNT ||
         typeof face !== 'number' ||
         !Number.isInteger(face) ||
         face < 1 ||
@@ -245,7 +245,7 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
       ) {
         return {
           valid: false,
-          error: 'count must be 1-10 and face must be 1-6.',
+          error: `count must be 1-${MAX_BID_COUNT} and face must be 1-6.`,
           retryable: true,
         };
       }
@@ -443,13 +443,14 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
     const winnerIdx = state.agentIds.indexOf(winner);
     const loserIdx = state.agentIds.indexOf(loser);
 
-    const loserPlayer = state.players[loserIdx] as BluffDicePlayerState;
-    const winnerPlayer = state.players[winnerIdx] as BluffDicePlayerState;
-    const loserBet = loserPlayer.bet;
-    const updatedLoser: BluffDicePlayerState = {
-      ...loserPlayer,
-      chips: Math.max(0, loserPlayer.chips - loserBet),
-    };
+    const settledPlayers = state.players.map((player) => ({
+      ...player,
+      chips: Math.max(0, player.chips - player.bet),
+    })) as [BluffDicePlayerState, BluffDicePlayerState];
+
+    const loserPlayer = settledPlayers[loserIdx] as BluffDicePlayerState;
+    const winnerPlayer = settledPlayers[winnerIdx] as BluffDicePlayerState;
+    const updatedLoser: BluffDicePlayerState = loserPlayer;
     const updatedWinner: BluffDicePlayerState = {
       ...winnerPlayer,
       chips: winnerPlayer.chips + state.pot,
@@ -539,6 +540,18 @@ export class BluffDiceGame implements GamePlugin<BluffDiceState> {
       const raw = Math.abs(Math.sin(seed + round * 1000 + playerIndex * 100 + i)) * 10000;
       return (Math.floor(raw) % 6) + 1;
     });
+  }
+
+  private getNextBid(current: BluffDiceBid): { count: number; face: number } | null {
+    if (current.face < 6) {
+      return { count: current.count, face: current.face + 1 };
+    }
+
+    if (current.count < MAX_BID_COUNT) {
+      return { count: current.count + 1, face: 1 };
+    }
+
+    return null;
   }
 
   private isBidHigher(current: BluffDiceBid, proposed: BluffDiceBid): boolean {
