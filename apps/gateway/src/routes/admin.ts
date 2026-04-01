@@ -102,7 +102,7 @@ export async function registerAdminRoutes(
     if (reply.sent) return;
 
     const { matchId } = request.params;
-    const { reason } = request.body;
+    const { reason } = (request.body ?? {}) as { reason?: unknown };
 
     if (typeof reason !== 'string' || reason.trim().length === 0) {
       reply.status(400).send({ status: 'error', message: '"reason" must be a non-empty string' });
@@ -135,7 +135,7 @@ export async function registerAdminRoutes(
     if (reply.sent) return;
 
     const { matchId } = request.params;
-    const { status, note } = request.body;
+    const { status, note } = (request.body ?? {}) as { status?: unknown; note?: unknown };
 
     if (!isReviewStatus(status)) {
       reply.status(400).send({

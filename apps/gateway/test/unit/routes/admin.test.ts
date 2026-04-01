@@ -106,6 +106,16 @@ describe('Admin routes – flag endpoint', () => {
 
     expect(res.statusCode).toBe(400);
   });
+
+  it('POST /v1/admin/matches/:matchId/flag returns 400 when body is omitted', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/matches/match-xyz/flag',
+      headers: { authorization: `Bearer ${VALID_TOKEN}` },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe('Admin routes – flagged list endpoint', () => {
@@ -200,6 +210,23 @@ describe('Admin routes – review endpoint', () => {
       url: '/v1/admin/matches/match-review-2/review',
       headers: { authorization: `Bearer ${VALID_TOKEN}` },
       payload: { status: 'invalid-status' },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('POST /v1/admin/matches/:matchId/review returns 400 when body is omitted', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/matches/match-review-3/flag',
+      headers: { authorization: `Bearer ${VALID_TOKEN}` },
+      payload: { reason: 'test' },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/matches/match-review-3/review',
+      headers: { authorization: `Bearer ${VALID_TOKEN}` },
     });
 
     expect(res.statusCode).toBe(400);
