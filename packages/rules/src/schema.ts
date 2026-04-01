@@ -64,6 +64,17 @@ export const DilemmaPokerParamsSchema = z
 
 export type DilemmaPokerParams = z.infer<typeof DilemmaPokerParamsSchema>;
 
+export const BluffDiceParamsSchema = z
+  .object({
+    initialChips: z.number().int().positive().default(50),
+    maxRounds: z.number().int().positive().default(5),
+    diceCount: z.number().int().positive().default(5),
+    maxBetPerRound: z.number().int().positive().default(10),
+  })
+  .strict();
+
+export type BluffDiceParams = z.infer<typeof BluffDiceParamsSchema>;
+
 export interface SemverParts {
   major: number;
   minor: number;

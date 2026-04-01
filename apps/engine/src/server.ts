@@ -7,6 +7,7 @@ import type { Action } from './framework/types.js';
 import { PromptInjectionArena } from './games/prompt-injection-arena.js';
 import { VectorGridWars } from './games/vector-grid-wars/index.js';
 import { DilemmaPoker } from './games/dilemma-poker/index.js';
+import { BluffDiceGame } from './games/bluff-dice/index.js';
 import { RuleRegistry } from './rules/registry.js';
 
 export interface CreateServerOptions {
@@ -35,6 +36,7 @@ export const createServer = async (options: CreateServerOptions = {}) => {
   engine.registerPlugin(new PromptInjectionArena());
   engine.registerPlugin(new VectorGridWars());
   engine.registerPlugin(new DilemmaPoker());
+  engine.registerPlugin(new BluffDiceGame());
 
   fastify.post<{
     Params: { matchId: string };
