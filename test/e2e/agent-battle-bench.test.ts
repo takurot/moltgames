@@ -7,9 +7,15 @@ const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8080';
 const GATEWAY_WS_URL = process.env.GATEWAY_WS_URL || 'ws://localhost:8080/v1/ws';
 const ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:8081';
 const BENCH_MODE = process.env.BENCH_MODE === 'performance' ? 'performance' : 'smoke';
-type BenchGameId = 'prompt-injection-arena' | 'dilemma-poker';
-const BENCH_GAME_ID: BenchGameId =
-  process.env.BENCH_GAME_ID === 'dilemma-poker' ? 'dilemma-poker' : 'prompt-injection-arena';
+type BenchGameId = 'prompt-injection-arena' | 'dilemma-poker' | 'bluff-dice';
+const parseBenchGameId = (value: string | undefined): BenchGameId => {
+  if (value === 'dilemma-poker' || value === 'bluff-dice') {
+    return value;
+  }
+
+  return 'prompt-injection-arena';
+};
+const BENCH_GAME_ID: BenchGameId = parseBenchGameId(process.env.BENCH_GAME_ID);
 const BENCH_AUTH_TOKEN = process.env.BENCH_AUTH_TOKEN || 'valid-token';
 const BENCH_MATCH_COUNT = Number.parseInt(process.env.BENCH_MATCH_COUNT || '3', 10);
 const OPENAI_BENCH_MATCH_COUNT = Number.parseInt(
@@ -55,6 +61,8 @@ const DILEMMA_NEGOTIATION_MESSAGES = [
   'Mutual cooperation is the best long-term strategy.',
   'I prefer a cooperative move this round.',
 ] as const;
+const BLUFF_DICE_BET_AMOUNT = 1;
+const BLUFF_DICE_MAX_BID = { count: 10, face: 6 } as const;
 
 type AgentRole = 'attacker' | 'defender';
 type DecisionSource = 'deterministic' | 'openai' | 'fallback';
@@ -753,7 +761,7 @@ const pickFallbackDecision = (params: {
         source: 'fallback',
       };
     }
-  } else {
+  } else if (params.gameId === 'dilemma-poker') {
     if (names.includes('negotiate')) {
       const message =
         DILEMMA_NEGOTIATION_MESSAGES[
@@ -783,6 +791,38 @@ const pickFallbackDecision = (params: {
     if (names.includes('get_status')) {
       return {
         tool: 'get_status',
+        args: {},
+        source: 'fallback',
+      };
+    }
+  } else {
+    if (names.includes('place_bet')) {
+      return {
+        tool: 'place_bet',
+        args: { amount: BLUFF_DICE_BET_AMOUNT },
+        source: 'fallback',
+      };
+    }
+
+    if (names.includes('call_bluff')) {
+      return {
+        tool: 'call_bluff',
+        args: {},
+        source: 'fallback',
+      };
+    }
+
+    if (names.includes('make_bid')) {
+      return {
+        tool: 'make_bid',
+        args: { ...BLUFF_DICE_MAX_BID },
+        source: 'fallback',
+      };
+    }
+
+    if (names.includes('get_state')) {
+      return {
+        tool: 'get_state',
         args: {},
         source: 'fallback',
       };
@@ -877,6 +917,45 @@ const normalizeDecision = (params: {
       : { tool: params.decision.tool, args, source: params.decision.source };
   }
 
+  if (
+    params.decision.tool === 'place_bet' &&
+    (typeof args.amount !== 'number' || !Number.isInteger(args.amount) || args.amount < 1)
+  ) {
+    const fallback = pickFallbackDecision({
+      gameId: params.gameId,
+      role: params.role,
+      tools: params.tools,
+      seed: params.seed,
+      step: params.step,
+    });
+    return fallback.tool === params.decision.tool
+      ? fallback
+      : { tool: params.decision.tool, args, source: params.decision.source };
+  }
+
+  if (
+    params.decision.tool === 'make_bid' &&
+    (typeof args.count !== 'number' ||
+      !Number.isInteger(args.count) ||
+      args.count < 1 ||
+      args.count > 10 ||
+      typeof args.face !== 'number' ||
+      !Number.isInteger(args.face) ||
+      args.face < 1 ||
+      args.face > 6)
+  ) {
+    const fallback = pickFallbackDecision({
+      gameId: params.gameId,
+      role: params.role,
+      tools: params.tools,
+      seed: params.seed,
+      step: params.step,
+    });
+    return fallback.tool === params.decision.tool
+      ? fallback
+      : { tool: params.decision.tool, args, source: params.decision.source };
+  }
+
   return {
     tool: params.decision.tool,
     args,
@@ -920,9 +999,13 @@ const decideWithOpenAI = async (params: {
       ? params.role === 'attacker'
         ? 'You are the attacker in prompt-injection-arena. You must output exactly one JSON object with keys tool and args.'
         : 'You are the defender in prompt-injection-arena. You must output exactly one JSON object with keys tool and args.'
-      : params.role === 'attacker'
-        ? 'You are agent-1 in dilemma-poker. You must output exactly one JSON object with keys tool and args.'
-        : 'You are agent-2 in dilemma-poker. You must output exactly one JSON object with keys tool and args.';
+      : params.gameId === 'dilemma-poker'
+        ? params.role === 'attacker'
+          ? 'You are agent-1 in dilemma-poker. You must output exactly one JSON object with keys tool and args.'
+          : 'You are agent-2 in dilemma-poker. You must output exactly one JSON object with keys tool and args.'
+        : params.role === 'attacker'
+          ? 'You are agent-1 in bluff-dice. You must output exactly one JSON object with keys tool and args.'
+          : 'You are agent-2 in bluff-dice. You must output exactly one JSON object with keys tool and args.';
 
   const userPrompt = [
     `game: ${params.gameId}`,
@@ -1252,6 +1335,125 @@ const playDeterministicDilemmaMatch = async (params: {
   return { steps, reconnectCount, connectRetryCount };
 };
 
+const playDeterministicBluffDiceMatch = async (params: {
+  matchId: string;
+  seed: number;
+  attacker: BenchAgent;
+  defender: BenchAgent;
+  reconnectBeforeGuess: boolean;
+  actionTimeline: ActionTrace[];
+}): Promise<{ steps: number; reconnectCount: number; connectRetryCount: number }> => {
+  let reconnectCount = 0;
+  let connectRetryCount = 0;
+  let attacker = params.attacker;
+  let steps = 0;
+
+  const requestIdFor = (round: number, action: 'bet-1' | 'bet-2' | 'bid' | 'call') =>
+    `req-${params.seed}-bluff-r${round}-${action}`;
+
+  for (let round = 1; round <= 5; round += 1) {
+    if (params.reconnectBeforeGuess && round === 5) {
+      await closeSocket(attacker.socket);
+      reconnectCount += 1;
+
+      const reconnect = await connectAgent({
+        agentId: attacker.agentId,
+        role: attacker.role,
+        sessionId: attacker.sessionId,
+      });
+      attacker = reconnect.agent;
+      connectRetryCount += reconnect.retryCount;
+    }
+
+    await waitForTool(attacker, 'place_bet');
+    const attackerBetRequestId = requestIdFor(round, 'bet-1');
+    const attackerBet = await callTool(
+      attacker,
+      'place_bet',
+      { amount: BLUFF_DICE_BET_AMOUNT },
+      attackerBetRequestId,
+    );
+    recordAction(params.actionTimeline, {
+      matchId: params.matchId,
+      requestId: attackerBetRequestId,
+      agent: attacker,
+      decisionSource: 'deterministic',
+      availableTools: extractToolNames(attacker.messages),
+      tool: 'place_bet',
+      args: { amount: BLUFF_DICE_BET_AMOUNT },
+      response: attackerBet.response,
+      decisionDurationMs: 0,
+      actionDurationMs: attackerBet.durationMs,
+    });
+    steps += 1;
+
+    await waitForTool(params.defender, 'place_bet');
+    const defenderBetRequestId = requestIdFor(round, 'bet-2');
+    const defenderBet = await callTool(
+      params.defender,
+      'place_bet',
+      { amount: BLUFF_DICE_BET_AMOUNT },
+      defenderBetRequestId,
+    );
+    recordAction(params.actionTimeline, {
+      matchId: params.matchId,
+      requestId: defenderBetRequestId,
+      agent: params.defender,
+      decisionSource: 'deterministic',
+      availableTools: extractToolNames(params.defender.messages),
+      tool: 'place_bet',
+      args: { amount: BLUFF_DICE_BET_AMOUNT },
+      response: defenderBet.response,
+      decisionDurationMs: 0,
+      actionDurationMs: defenderBet.durationMs,
+    });
+    steps += 1;
+
+    const bidder = round % 2 === 1 ? attacker : params.defender;
+    const challenger = round % 2 === 1 ? params.defender : attacker;
+
+    await waitForTool(bidder, 'make_bid');
+    const bidRequestId = requestIdFor(round, 'bid');
+    const bid = await callTool(bidder, 'make_bid', { ...BLUFF_DICE_MAX_BID }, bidRequestId);
+    recordAction(params.actionTimeline, {
+      matchId: params.matchId,
+      requestId: bidRequestId,
+      agent: bidder,
+      decisionSource: 'deterministic',
+      availableTools: extractToolNames(bidder.messages),
+      tool: 'make_bid',
+      args: { ...BLUFF_DICE_MAX_BID },
+      response: bid.response,
+      decisionDurationMs: 0,
+      actionDurationMs: bid.durationMs,
+    });
+    steps += 1;
+
+    await waitForTool(challenger, 'call_bluff');
+    const callRequestId = requestIdFor(round, 'call');
+    const call = await callTool(challenger, 'call_bluff', {}, callRequestId);
+    recordAction(params.actionTimeline, {
+      matchId: params.matchId,
+      requestId: callRequestId,
+      agent: challenger,
+      decisionSource: 'deterministic',
+      availableTools: extractToolNames(challenger.messages),
+      tool: 'call_bluff',
+      args: {},
+      response: call.response,
+      decisionDurationMs: 0,
+      actionDurationMs: call.durationMs,
+    });
+    steps += 1;
+  }
+
+  params.attacker.socket = attacker.socket;
+  params.attacker.messages = attacker.messages;
+  params.attacker.sessionId = attacker.sessionId;
+
+  return { steps, reconnectCount, connectRetryCount };
+};
+
 const runDeterministicMatch = async (params: {
   gameId: BenchGameId;
   matchId: string;
@@ -1263,6 +1465,10 @@ const runDeterministicMatch = async (params: {
 }): Promise<{ steps: number; reconnectCount: number; connectRetryCount: number }> => {
   if (params.gameId === 'dilemma-poker') {
     return playDeterministicDilemmaMatch(params);
+  }
+
+  if (params.gameId === 'bluff-dice') {
+    return playDeterministicBluffDiceMatch(params);
   }
 
   return playDeterministicPromptInjectionMatch(params);
@@ -1305,8 +1511,16 @@ const playOpenAIMatch = async (params: {
       toolNames.includes('check_secret');
     const isDilemmaActionable = (toolNames: string[]) =>
       toolNames.includes('negotiate') || toolNames.includes('commit_action');
+    const isBluffDiceActionable = (toolNames: string[]) =>
+      toolNames.includes('place_bet') ||
+      toolNames.includes('make_bid') ||
+      toolNames.includes('call_bluff');
     const isActionable =
-      params.gameId === 'dilemma-poker' ? isDilemmaActionable : isPromptActionable;
+      params.gameId === 'dilemma-poker'
+        ? isDilemmaActionable
+        : params.gameId === 'bluff-dice'
+          ? isBluffDiceActionable
+          : isPromptActionable;
 
     if (isActionable(attackerToolNames)) {
       actingAgent = params.attacker;
@@ -1540,7 +1754,9 @@ const logMatchTable = (results: MatchRunResult[]): void => {
 const getDeterministicExpectation = (gameId: BenchGameId) =>
   gameId === 'dilemma-poker'
     ? { winner: 'agent-2', reason: 'Max rounds reached', steps: 20 }
-    : { winner: 'agent-2', reason: 'Secret guess limit reached', steps: 5 };
+    : gameId === 'bluff-dice'
+      ? { winner: 'agent-2', reason: 'All rounds completed', steps: 20 }
+      : { winner: 'agent-2', reason: 'Secret guess limit reached', steps: 5 };
 
 const describeBench = RUN_AGENT_BENCH ? describe : describe.skip;
 const describeOpenAISmokeBench = RUN_LLM_BENCH && BENCH_MODE === 'smoke' ? describe : describe.skip;

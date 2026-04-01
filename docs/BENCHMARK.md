@@ -36,7 +36,7 @@ pnpm test:bench:agents
 Useful options:
 
 - `BENCH_MATCH_COUNT` (default: `3`)
-- `BENCH_GAME_ID` (default: `prompt-injection-arena`) - `prompt-injection-arena` / `dilemma-poker`
+- `BENCH_GAME_ID` (default: `prompt-injection-arena`) - `prompt-injection-arena` / `dilemma-poker` / `bluff-dice`
 - `BENCH_LOG_PROGRESS` (default: `true`) - print per-action progress while a match is running
 - `BENCH_LOG_ACTIONS` (default: `true`) - print full action timeline tables after each match
 
@@ -44,6 +44,12 @@ Run Dilemma Poker deterministic bench:
 
 ```bash
 pnpm test:bench:agents:dilemma
+```
+
+Run Bluff Dice deterministic bench:
+
+```bash
+pnpm test:bench:agents:bluff-dice
 ```
 
 4. Clean up:
@@ -100,6 +106,14 @@ pnpm test:bench:agents:llm:dilemma
 pnpm test:bench:agents:llm:perf:dilemma
 ```
 
+Bluff Dice variants:
+
+```bash
+export OPENAI_API_KEY="<your-api-key>"
+pnpm test:bench:agents:llm:bluff-dice
+pnpm test:bench:agents:llm:perf:bluff-dice
+```
+
 This runs a larger sample (`OPENAI_BENCH_MATCH_COUNT=20`) and prints:
 
 - win-rate KPI (`attackerWinRate`, `defenderWinRate`)
@@ -110,7 +124,7 @@ This runs a larger sample (`OPENAI_BENCH_MATCH_COUNT=20`) and prints:
 ### 4.3 Useful options
 
 - `OPENAI_MODEL` (default: `gpt-4.1-mini`)
-- `BENCH_GAME_ID` (`prompt-injection-arena` / `dilemma-poker`, default: `prompt-injection-arena`)
+- `BENCH_GAME_ID` (`prompt-injection-arena` / `dilemma-poker` / `bluff-dice`, default: `prompt-injection-arena`)
 - `BENCH_MODE` (`smoke` / `performance`, default: `smoke`)
 - `OPENAI_BENCH_MATCH_COUNT` (default: `1` for smoke, `20` for performance)
 - `OPENAI_MAX_OUTPUT_TOKENS` (default: `220`)
