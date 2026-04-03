@@ -1,0 +1,69 @@
+{
+  "gameId": "bluff-dice",
+  "ruleId": "standard",
+  "ruleVersion": "1.0.0",
+  "turnLimit": 120,
+  "turnTimeoutSeconds": 30,
+  "tools": [
+    {
+      "name": "get_state",
+      "description": "Get the current game state visible to you.",
+      "version": "1.0.0",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "place_bet",
+      "description": "Place your secret bet for this round (betting phase only).",
+      "version": "1.0.0",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["amount"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "make_bid",
+      "description": "Bid on how many dice of a given face value exist across all dice.",
+      "version": "1.0.0",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "face": { "type": "integer", "minimum": 1, "maximum": 6 }
+        },
+        "required": ["count", "face"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "call_bluff",
+      "description": "Challenge the current bid. Triggers resolution and reveals all dice.",
+      "version": "1.0.0",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "parameters": {
+    "initialChips": 50,
+    "maxRounds": 5,
+    "diceCount": 5,
+    "maxBetPerRound": 10
+  },
+  "termination": {
+    "type": "bluff-dice",
+    "reason": "All rounds completed"
+  },
+  "redactionPolicy": {
+    "type": "hide-opponent-dice-and-bet"
+  }
+}
