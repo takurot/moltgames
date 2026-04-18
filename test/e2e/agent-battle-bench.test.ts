@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { requestJsonWithRetry } from '../../tools/agent-runner/src/http/request-json.js';
+import { summarizeAndSanitizeTraceValue } from '../../tools/agent-runner/src/logging/trace-logger.js';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8080';
 const GATEWAY_WS_URL = process.env.GATEWAY_WS_URL || 'ws://localhost:8080/v1/ws';
@@ -316,60 +317,6 @@ const waitForMessage = async (
   return found;
 };
 
-const truncateText = (value: string, maxLength = 180): string => {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  return `${value.slice(0, maxLength)}...`;
-};
-
-const summarizeValue = (value: unknown, depth = 0): unknown => {
-  if (value === null || value === undefined) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    return truncateText(value);
-  }
-
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return value;
-  }
-
-  if (depth >= 2) {
-    if (Array.isArray(value)) {
-      return `[array:${value.length}]`;
-    }
-    if (isRecord(value)) {
-      return '[object]';
-    }
-    return String(value);
-  }
-
-  if (Array.isArray(value)) {
-    const summarized = value.slice(0, 4).map((item) => summarizeValue(item, depth + 1));
-    if (value.length > 4) {
-      summarized.push(`...(${value.length - 4} more)`);
-    }
-    return summarized;
-  }
-
-  if (isRecord(value)) {
-    const entries = Object.entries(value).slice(0, 8);
-    const next: Record<string, unknown> = {};
-    for (const [key, val] of entries) {
-      next[key] = summarizeValue(val, depth + 1);
-    }
-    if (Object.keys(value).length > 8) {
-      next.__truncated_keys__ = Object.keys(value).length - 8;
-    }
-    return next;
-  }
-
-  return String(value);
-};
-
 const recordAction = (
   timeline: ActionTrace[],
   params: {
@@ -394,8 +341,8 @@ const recordAction = (
     decisionSource: params.decisionSource,
     availableTools: [...params.availableTools],
     tool: params.tool,
-    argsSummary: summarizeValue(params.args),
-    responseSummary: summarizeValue(params.response),
+    argsSummary: summarizeAndSanitizeTraceValue(params.args),
+    responseSummary: summarizeAndSanitizeTraceValue(params.response),
     decisionDurationMs: params.decisionDurationMs,
     actionDurationMs: params.actionDurationMs,
   });
