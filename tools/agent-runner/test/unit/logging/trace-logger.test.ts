@@ -67,6 +67,39 @@ describe('summarizeAndSanitizeTraceValue', () => {
       },
     });
   });
+
+  it('sanitizes api keys that remain after long-string truncation', () => {
+    const longPrefix = 'x'.repeat(160);
+    const result = summarizeAndSanitizeTraceValue(`${longPrefix} sk-test-key-abc`);
+
+    expect(result).toEqual(`${longPrefix} [REDACTED_API_KEY]`);
+  });
+
+  it('uses _truncatedKeys metadata when summarizing large objects', () => {
+    expect(
+      summarizeAndSanitizeTraceValue({
+        first: 1,
+        second: 2,
+        third: 3,
+        fourth: 4,
+        fifth: 5,
+        sixth: 6,
+        seventh: 7,
+        eighth: 8,
+        ninth: 9,
+      }),
+    ).toEqual({
+      first: 1,
+      second: 2,
+      third: 3,
+      fourth: 4,
+      fifth: 5,
+      sixth: 6,
+      seventh: 7,
+      eighth: 8,
+      _truncatedKeys: 1,
+    });
+  });
 });
 
 describe('ConsoleJsonTraceLogger', () => {

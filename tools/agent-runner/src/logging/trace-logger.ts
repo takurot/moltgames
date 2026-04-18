@@ -1,10 +1,14 @@
-const API_KEY_PATTERN = /\b(?:sk-[\w-]+|AIza[\w-]+)\b/;
-const API_KEY_TEXT_PATTERN = /\b(?:sk-[\w-]+|AIza[\w-]+)\b/g;
-const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
-const EMAIL_TEXT_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const PHONE_PATTERN = /(?:\+?\d[\d()\s-]{7,}\d)/;
-const PHONE_TEXT_PATTERN = /(?:\+?\d[\d()\s-]{7,}\d)/g;
-const SECRET_TEXT_PATTERN = /\bSECRET-[\w-]+\b/g;
+const API_KEY_PATTERN_SOURCE = String.raw`\b(?:sk-[\w-]+|AIza[\w-]+)\b`;
+const EMAIL_PATTERN_SOURCE = String.raw`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`;
+const PHONE_PATTERN_SOURCE = String.raw`(?:\+?\d[\d()\s-]{7,}\d)`;
+const SECRET_PATTERN_SOURCE = String.raw`\bSECRET-[\w-]+\b`;
+
+const createPattern = (source: string, flags = ''): RegExp => new RegExp(source, flags);
+
+const API_KEY_TEXT_PATTERN = createPattern(API_KEY_PATTERN_SOURCE, 'g');
+const EMAIL_TEXT_PATTERN = createPattern(EMAIL_PATTERN_SOURCE, 'gi');
+const PHONE_TEXT_PATTERN = createPattern(PHONE_PATTERN_SOURCE, 'g');
+const SECRET_TEXT_PATTERN = createPattern(SECRET_PATTERN_SOURCE, 'g');
 
 const TOKEN_KEY_PATTERN = /(?:authorization|token)/i;
 const API_KEY_KEY_PATTERN = /api[_-]?key/i;
@@ -61,19 +65,7 @@ const sanitizeString = (value: string, keyName?: string): string => {
   sanitized = sanitized.replace(EMAIL_TEXT_PATTERN, '[REDACTED_TEXT]');
   sanitized = sanitized.replace(PHONE_TEXT_PATTERN, '[REDACTED_TEXT]');
 
-  if (sanitized !== value) {
-    return sanitized;
-  }
-
-  if (API_KEY_PATTERN.test(value)) {
-    return keyName && API_KEY_KEY_PATTERN.test(keyName) ? '[REDACTED_API_KEY]' : '[REDACTED_TEXT]';
-  }
-
-  if (EMAIL_PATTERN.test(value) || PHONE_PATTERN.test(value)) {
-    return '[REDACTED_TEXT]';
-  }
-
-  return value;
+  return sanitized;
 };
 
 export const sanitizeTraceValue = (value: unknown, keyName?: string): unknown => {
@@ -97,7 +89,7 @@ export const sanitizeTraceValue = (value: unknown, keyName?: string): unknown =>
   return value;
 };
 
-export const summarizeTraceValue = (value: unknown, depth = 0): unknown => {
+const summarizeTraceValue = (value: unknown, depth = 0): unknown => {
   if (value === null || value === undefined) {
     return value;
   }
@@ -137,7 +129,7 @@ export const summarizeTraceValue = (value: unknown, depth = 0): unknown => {
       next[entryKey] = summarizeTraceValue(entryValue, depth + 1);
     }
     if (Object.keys(value).length > 8) {
-      next.__truncated_keys__ = Object.keys(value).length - 8;
+      next._truncatedKeys = Object.keys(value).length - 8;
     }
     return next;
   }
