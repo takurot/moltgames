@@ -142,6 +142,88 @@ describe('Runner integration', () => {
     }
   });
 
+  it('does not use stale tools when ok arrives before tools/list_changed', async () => {
+    const server = new WebSocketServer({ port: 0 });
+    servers.add(server);
+
+    const port = (server.address() as { port: number }).port;
+    const sentTools: string[] = [];
+
+    server.on('connection', (socket) => {
+      socket.send(JSON.stringify({ type: 'session/ready', session_id: 'session-1' }));
+      socket.send(
+        JSON.stringify({
+          type: 'tools/list',
+          tools: [
+            {
+              name: 'send_message',
+              description: 'Send',
+              version: '1.0.0',
+              inputSchema: { type: 'object', additionalProperties: true },
+            },
+          ],
+        }),
+      );
+
+      socket.on('message', (raw) => {
+        const payload = JSON.parse(raw.toString()) as { tool: string; request_id: string };
+        sentTools.push(payload.tool);
+
+        // Send ok FIRST, then tools/list_changed 30 ms later (simulates the race)
+        socket.send(
+          JSON.stringify({ request_id: payload.request_id, status: 'ok', result: {} }),
+        );
+        setTimeout(() => {
+          socket.send(
+            JSON.stringify({
+              type: 'tools/list_changed',
+              tools: [
+                {
+                  name: 'respond',
+                  description: 'Respond',
+                  version: '1.0.0',
+                  inputSchema: { type: 'object', additionalProperties: true },
+                },
+              ],
+            }),
+          );
+        }, 30);
+      });
+    });
+
+    let respondDecisions = 0;
+    const runner = new Runner({
+      url: createServerUrl(port),
+      token: 'connect-token',
+      toolsListRefreshTimeoutMs: 200,
+      planner: {
+        decide: async ({ tools }) => {
+          if (tools.some((t) => t.name === 'send_message')) {
+            return { tool: 'send_message', args: { content: 'hello' } };
+          }
+
+          if (tools.some((t) => t.name === 'respond') && respondDecisions === 0) {
+            respondDecisions += 1;
+            return { tool: 'respond', args: { content: 'ack' } };
+          }
+
+          return null;
+        },
+      },
+    });
+
+    try {
+      await runner.connect();
+      await waitFor(() => sentTools.length >= 2);
+
+      expect(sentTools[0]).toBe('send_message');
+      // Second action must use the updated tool, not the stale one
+      expect(sentTools[1]).toBe('respond');
+    } finally {
+      runner.close();
+    }
+  });
+
   it('stops sending new actions after DRAINING until the session reconnects', async () => {
     const server = new WebSocketServer({ port: 0 });
     servers.add(server);
