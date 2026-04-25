@@ -4,12 +4,12 @@
 
 ## ファイル構成
 
-| ファイル | 役割 |
-|---------|------|
-| `dev_claude.sh` | Claude エージェントで実行するエントリーポイント |
-| `dev_codex.sh` | Codex エージェントで実行するエントリーポイント |
-| `dev-workflow.sh` | ワークフロー本体（両エントリーポイントから呼ばれる） |
-| `review-prompt.sh` | コードレビュープロンプト生成ヘルパー |
+| ファイル           | 役割                                                 |
+| ------------------ | ---------------------------------------------------- |
+| `dev_claude.sh`    | Claude エージェントで実行するエントリーポイント      |
+| `dev_codex.sh`     | Codex エージェントで実行するエントリーポイント       |
+| `dev-workflow.sh`  | ワークフロー本体（両エントリーポイントから呼ばれる） |
+| `review-prompt.sh` | コードレビュープロンプト生成ヘルパー                 |
 
 ## 使い方
 
@@ -68,17 +68,17 @@ bash script/dev_claude.sh temp/PLAN.md "..."
 
 ## 環境変数
 
-| 変数 | デフォルト | 説明 |
-|------|-----------|------|
-| `DEV_AGENT_FAMILY` | `claude` / `codex` | 実装エージェント |
-| `DEV_REVIEW_AGENT_FAMILY` | `codex` | レビューエージェント |
-| `MODEL_PLAN` | `sonnet` / `gpt-5.4` | プランニング・セキュリティ用モデル |
-| `MODEL_IMPL` | `sonnet` / `gpt-5.4` | 実装・検証用モデル |
-| `MODEL_CLEANUP` | `haiku` / `gpt-5.4` | クリーンアップ用モデル |
-| `DEV_DRY_RUN` | `0` | `1` にするとエージェント呼び出しをスキップ |
-| `CI_MAX_ATTEMPTS` | `10` | CI 修正の最大リトライ回数 |
-| `CI_POLL_INTERVAL` | `30` | CI ポーリング間隔（秒） |
-| `DEV_SKILL_DIR` | `~/.claude/skills` など | スキルファイルディレクトリ |
+| 変数                      | デフォルト              | 説明                                       |
+| ------------------------- | ----------------------- | ------------------------------------------ |
+| `DEV_AGENT_FAMILY`        | `claude` / `codex`      | 実装エージェント                           |
+| `DEV_REVIEW_AGENT_FAMILY` | `codex`                 | レビューエージェント                       |
+| `MODEL_PLAN`              | `sonnet` / `gpt-5.4`    | プランニング・セキュリティ用モデル         |
+| `MODEL_IMPL`              | `sonnet` / `gpt-5.4`    | 実装・検証用モデル                         |
+| `MODEL_CLEANUP`           | `haiku` / `gpt-5.4`     | クリーンアップ用モデル                     |
+| `DEV_DRY_RUN`             | `0`                     | `1` にするとエージェント呼び出しをスキップ |
+| `CI_MAX_ATTEMPTS`         | `10`                    | CI 修正の最大リトライ回数                  |
+| `CI_POLL_INTERVAL`        | `30`                    | CI ポーリング間隔（秒）                    |
+| `DEV_SKILL_DIR`           | `~/.claude/skills` など | スキルファイルディレクトリ                 |
 
 ## PLAN ファイルの最小構成
 
@@ -86,24 +86,31 @@ bash script/dev_claude.sh temp/PLAN.md "..."
 # PLAN: <タイトル>
 
 ## Source Issue
+
 GitHub Issue #XX
 
 ## Problem Statement
+
 （問題の説明）
 
 ## Goal / Non-goals
+
 （目標と対象外）
 
 ## Likely Touched Areas
+
 （変更対象ファイル・パッケージ）
 
 ## Acceptance Criteria
+
 - [ ] ...
 
 ## Tests / Verification
+
 （検証方法）
 
 ## Risks / Edge Cases
+
 （リスクとエッジケース）
 ```
 
