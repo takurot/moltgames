@@ -195,6 +195,192 @@ describe('Runner', () => {
     expect(wsMockState.instances).toHaveLength(1);
   });
 
+  describe('tools/list_changed race condition guard', () => {
+    it('defers the next action loop after ok when tools/list_changed has not yet arrived', async () => {
+      vi.useFakeTimers();
+
+      const planner = {
+        decide: vi
+          .fn()
+          .mockResolvedValueOnce({ tool: 'send_message', args: { content: 'A' } })
+          .mockResolvedValueOnce({ tool: 'send_message', args: { content: 'B' } }),
+      };
+
+      const runner = new Runner({
+        url: 'ws://localhost:8080/v1/ws',
+        token: 'connect-token',
+        planner,
+        toolsListRefreshTimeoutMs: 100,
+      });
+
+      const connectPromise = runner.connect();
+      const socket = getSocketAt(0);
+      socket.triggerOpen();
+      await connectPromise;
+
+      socket.triggerMessage({ type: 'session/ready', session_id: 'session-1' });
+      socket.triggerMessage({
+        type: 'tools/list',
+        tools: [buildToolDefinition('send_message')],
+      });
+      await Promise.resolve();
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // ok arrives WITHOUT a prior tools/list_changed for this request
+      const firstPayload = JSON.parse(socket.sentPayloads[0]!) as { request_id: string };
+      socket.triggerMessage({ request_id: firstPayload.request_id, status: 'ok', result: {} });
+      await Promise.resolve();
+
+      // Action loop should be deferred — no second action yet
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // Fallback timer fires → action loop unblocks
+      await vi.advanceTimersByTimeAsync(101);
+      expect(socket.sentPayloads).toHaveLength(2);
+
+      runner.close();
+    });
+
+    it('proceeds immediately after ok when tools/list_changed arrived while request was in-flight', async () => {
+      const planner = {
+        decide: vi
+          .fn()
+          .mockResolvedValueOnce({ tool: 'send_message', args: { content: 'A' } })
+          .mockResolvedValueOnce({ tool: 'respond', args: { content: 'B' } }),
+      };
+
+      const runner = new Runner({
+        url: 'ws://localhost:8080/v1/ws',
+        token: 'connect-token',
+        planner,
+      });
+
+      const connectPromise = runner.connect();
+      const socket = getSocketAt(0);
+      socket.triggerOpen();
+      await connectPromise;
+
+      socket.triggerMessage({ type: 'session/ready', session_id: 'session-1' });
+      socket.triggerMessage({
+        type: 'tools/list',
+        tools: [buildToolDefinition('send_message')],
+      });
+      await Promise.resolve();
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // tools/list_changed arrives WHILE request in-flight
+      socket.triggerMessage({
+        type: 'tools/list_changed',
+        tools: [buildToolDefinition('respond')],
+      });
+      await Promise.resolve();
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // ok arrives AFTER tools/list_changed — should proceed immediately
+      const firstPayload = JSON.parse(socket.sentPayloads[0]!) as { request_id: string };
+      socket.triggerMessage({ request_id: firstPayload.request_id, status: 'ok', result: {} });
+      await Promise.resolve();
+
+      expect(socket.sentPayloads).toHaveLength(2);
+      expect(planner.decide).toHaveBeenCalledTimes(2);
+
+      runner.close();
+    });
+
+    it('fires action loop immediately when tools/list_changed arrives during refresh wait', async () => {
+      vi.useFakeTimers();
+
+      const planner = {
+        decide: vi
+          .fn()
+          .mockResolvedValueOnce({ tool: 'send_message', args: { content: 'A' } })
+          .mockResolvedValueOnce({ tool: 'respond', args: { content: 'B' } }),
+      };
+
+      const runner = new Runner({
+        url: 'ws://localhost:8080/v1/ws',
+        token: 'connect-token',
+        planner,
+        toolsListRefreshTimeoutMs: 500,
+      });
+
+      const connectPromise = runner.connect();
+      const socket = getSocketAt(0);
+      socket.triggerOpen();
+      await connectPromise;
+
+      socket.triggerMessage({ type: 'session/ready', session_id: 'session-1' });
+      socket.triggerMessage({
+        type: 'tools/list',
+        tools: [buildToolDefinition('send_message')],
+      });
+      await Promise.resolve();
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // ok without prior tools/list_changed → deferred
+      const firstPayload = JSON.parse(socket.sentPayloads[0]!) as { request_id: string };
+      socket.triggerMessage({ request_id: firstPayload.request_id, status: 'ok', result: {} });
+      await Promise.resolve();
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // Advance slightly (not past timeout) — still deferred
+      await vi.advanceTimersByTimeAsync(50);
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // tools/list_changed arrives during wait → cancels timer, fires immediately
+      socket.triggerMessage({
+        type: 'tools/list_changed',
+        tools: [buildToolDefinition('respond')],
+      });
+      await Promise.resolve();
+      expect(socket.sentPayloads).toHaveLength(2);
+
+      runner.close();
+    });
+
+    it('cancels the tools-list refresh timer when close() is called', async () => {
+      vi.useFakeTimers();
+
+      const planner = {
+        decide: vi
+          .fn()
+          .mockResolvedValueOnce({ tool: 'send_message', args: { content: 'A' } })
+          .mockResolvedValueOnce({ tool: 'send_message', args: { content: 'B' } }),
+      };
+
+      const runner = new Runner({
+        url: 'ws://localhost:8080/v1/ws',
+        token: 'connect-token',
+        planner,
+        toolsListRefreshTimeoutMs: 100,
+      });
+
+      const connectPromise = runner.connect();
+      const socket = getSocketAt(0);
+      socket.triggerOpen();
+      await connectPromise;
+
+      socket.triggerMessage({ type: 'session/ready', session_id: 'session-1' });
+      socket.triggerMessage({
+        type: 'tools/list',
+        tools: [buildToolDefinition('send_message')],
+      });
+      await Promise.resolve();
+      expect(socket.sentPayloads).toHaveLength(1);
+
+      // ok without tools/list_changed → deferred
+      const firstPayload = JSON.parse(socket.sentPayloads[0]!) as { request_id: string };
+      socket.triggerMessage({ request_id: firstPayload.request_id, status: 'ok', result: {} });
+      await Promise.resolve();
+
+      runner.close();
+
+      // Advance past timeout — timer should be cancelled, no additional action
+      await vi.advanceTimersByTimeAsync(200);
+      expect(socket.sentPayloads).toHaveLength(1);
+    });
+  });
+
   it('clears active in-flight request on disconnect so action loop resumes after reconnect', async () => {
     vi.useFakeTimers();
 
