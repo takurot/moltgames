@@ -165,7 +165,6 @@ export class Engine {
     const turn = plugin.getTurn(state);
     const turnTimeoutSeconds =
       activeRule?.turnTimeoutSeconds ?? this.getTurnTimeoutSeconds(null, plugin);
-    const turnStartedAtMs = Date.now().toString();
     const fallbackRuleId =
       isRecord(state) && isNonEmptyString(state.ruleId) ? state.ruleId : gameId;
     const fallbackRuleVersion =
@@ -182,7 +181,18 @@ export class Engine {
       turn: turn.toString(),
       retryCount: '0',
       turnTimeoutSec: turnTimeoutSeconds.toString(),
-      turnStartedAtMs,
+      // turnStartedAtMs is intentionally absent — set by activateMatch when both agents connect
+    });
+  }
+
+  async activateMatch(matchId: string): Promise<void> {
+    const meta = await this.redis.getMatchMeta(matchId);
+    if (!meta) {
+      throw new Error(`Match not found: ${matchId}`);
+    }
+    await this.redis.saveMatchMeta(matchId, {
+      ...meta,
+      turnStartedAtMs: Date.now().toString(),
     });
   }
 

@@ -252,6 +252,37 @@ export const createServer = async (options: CreateServerOptions = {}) => {
     },
   );
 
+  fastify.post<{ Params: { matchId: string } }>(
+    '/matches/:matchId/activate',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['matchId'],
+          additionalProperties: false,
+          properties: {
+            matchId: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { matchId } = request.params;
+      try {
+        await engine.activateMatch(matchId);
+        return { status: 'ok' };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (message.startsWith('Match not found:')) {
+          reply.status(404).send({ status: 'error', message });
+          return;
+        }
+        request.log.error(error);
+        reply.status(500).send({ status: 'error', message });
+      }
+    },
+  );
+
   fastify.post<{ Params: { matchId: string }; Body: Action }>(
     '/matches/:matchId/action',
     {

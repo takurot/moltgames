@@ -5,3 +5,5 @@ coverage
 pnpm-lock.yaml
 docs/PLAN.md
 docs/SPEC.md
+temp/
+.dev-task-notes.md

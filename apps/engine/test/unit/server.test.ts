@@ -199,6 +199,38 @@ describe('Engine server /matches/:matchId/start', () => {
   });
 });
 
+describe('Engine server /matches/:matchId/activate', () => {
+  let fastify: FastifyInstance;
+  let close: () => Promise<void>;
+
+  beforeEach(async () => {
+    const server = await createServer();
+    server.engine.registerPlugin(mockPlugin);
+    fastify = server.fastify;
+    close = server.close;
+  });
+
+  afterEach(async () => {
+    await close();
+  });
+
+  it('returns 200 and sets turnStartedAtMs for an existing match', async () => {
+    await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-activate/start',
+      payload: { gameId: 'test-game', seed: 1 },
+    });
+
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/matches/match-activate/activate',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'ok' });
+  });
+});
+
 describe('Engine server /healthz', () => {
   let fastify: FastifyInstance;
   let close: () => Promise<void>;
