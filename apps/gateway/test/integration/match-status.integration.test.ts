@@ -370,4 +370,121 @@ describe('Match status lifecycle (Issue #38)', () => {
     const body = res.json() as { match: { status: string } };
     expect(body.match.status).toBe('ABORTED');
   });
+
+  it('FINISHED match is NOT overwritten as ABORTED when an agent disconnects after match ends (Issue #74)', async () => {
+    const matchRepo = new InMemoryMatchRepository();
+    const engineClient = makeEngineClient({ terminateOnFirstCall: true });
+    const app = await startApp(engineClient, matchRepo);
+
+    const token1 = await issueToken(app, 'match-074', 'agent-1');
+    const token2 = await issueToken(app, 'match-074', 'agent-2');
+
+    const { ws: ws1, collector: collector1 } = await connectAgent(app, token1);
+    await connectAgent(app, token2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Trigger termination via tool call
+    ws1.send(JSON.stringify({ request_id: 'req-1', tool: 'submit_action', args: { move: 'A1' } }));
+    await collector1.waitFor(isMatchEnded);
+
+    // Confirm match is FINISHED before disconnect
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const midRes = await app.inject({ method: 'GET', url: '/v1/matches/match-074' });
+    expect(midRes.statusCode).toBe(200);
+    expect(midRes.json<{ match: { status: string } }>().match.status).toBe('FINISHED');
+
+    // Disconnect agent — forfeit timer fires after reconnectGraceMs (100ms)
+    ws1.close();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const res = await app.inject({ method: 'GET', url: '/v1/matches/match-074' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ match: { status: string } }>().match.status).toBe('FINISHED');
+  });
+
+  it('agent reconnecting within grace period after active match does not abort match', async () => {
+    const matchRepo = new InMemoryMatchRepository();
+    const app = await startApp(makeEngineClient(), matchRepo);
+
+    const token1 = await issueToken(app, 'match-005-grace', 'agent-1');
+    const token2 = await issueToken(app, 'match-005-grace', 'agent-2');
+
+    const { ws: ws1 } = await connectAgent(app, token1);
+    await connectAgent(app, token2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Disconnect then immediately reconnect within grace window (< 100ms)
+    ws1.close();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const reconnectToken = await issueToken(app, 'match-005-grace', 'agent-1');
+    await connectAgent(app, reconnectToken);
+
+    // Wait past original grace period
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const res = await app.inject({ method: 'GET', url: '/v1/matches/match-005-grace' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ match: { status: string } }>().match.status).toBe('IN_PROGRESS');
+  });
+
+  it('forfeit is skipped via repo-fallback when endedMatchIds cache is cold but repo shows FINISHED (Issue #74)', async () => {
+    // This tests the repo-fallback branch of the guard: endedMatchIds is NOT populated
+    // (no tool-call termination occurred), but the repo already holds a terminal status.
+    // Simulates a different gateway pod that missed the termination event.
+    const matchRepo = new InMemoryMatchRepository();
+    const app = await startApp(makeEngineClient(), matchRepo);
+
+    const token1 = await issueToken(app, 'match-074-repofb', 'agent-1');
+    const token2 = await issueToken(app, 'match-074-repofb', 'agent-2');
+
+    const { ws: ws1 } = await connectAgent(app, token1);
+    await connectAgent(app, token2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Directly mark the match FINISHED in the repo, bypassing the tool-call path
+    // that would populate the in-memory endedMatchIds cache.
+    await matchRepo.updateStatus('match-074-repofb', 'FINISHED', {
+      endedAt: new Date().toISOString(),
+    });
+
+    // Disconnect agent-1 — scheduleForfeit fires after reconnectGraceMs (100ms).
+    // The guard must fall through to the repo lookup because the cache is cold.
+    ws1.close();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const res = await app.inject({ method: 'GET', url: '/v1/matches/match-074-repofb' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ match: { status: string } }>().match.status).toBe('FINISHED');
+  });
+
+  it('forfeit proceeds (fail-open) when repo lookup throws during the guard check (Issue #74)', async () => {
+    // Validates the .catch(() => false) branch: if the repo is unavailable, skipForfeit
+    // defaults to false and the forfeit executes rather than silently dropping it.
+    const matchRepo = new InMemoryMatchRepository();
+    const app = await startApp(makeEngineClient(), matchRepo);
+
+    const token1 = await issueToken(app, 'match-074-err', 'agent-1');
+    const token2 = await issueToken(app, 'match-074-err', 'agent-2');
+
+    await connectAgent(app, token1);
+    const { ws: ws2 } = await connectAgent(app, token2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Verify match is IN_PROGRESS before the error scenario.
+    const midRes = await app.inject({ method: 'GET', url: '/v1/matches/match-074-err' });
+    expect(midRes.statusCode).toBe(200);
+    expect(midRes.json<{ match: { status: string } }>().match.status).toBe('IN_PROGRESS');
+
+    // Arrange: make repo.get throw on the next call (the guard check inside scheduleForfeit).
+    vi.spyOn(matchRepo, 'get').mockRejectedValueOnce(new Error('db unavailable'));
+
+    // Disconnect agent-2 — forfeit timer fires after 100ms.
+    ws2.close();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    // The guard caught the error and defaulted to false → forfeit executed → ABORTED.
+    const res = await app.inject({ method: 'GET', url: '/v1/matches/match-074-err' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ match: { status: string } }>().match.status).toBe('ABORTED');
+  });
 });
