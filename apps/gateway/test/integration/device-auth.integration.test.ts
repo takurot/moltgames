@@ -1,7 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { type Redis } from 'ioredis';
 import RedisMock from 'ioredis-mock';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
 import {
@@ -36,6 +36,7 @@ describe('device auth integration', () => {
 
   afterEach(async () => {
     await app.close();
+    vi.unstubAllEnvs();
   });
 
   it('completes the device flow through issue, activate, and token polling endpoints', async () => {
@@ -101,5 +102,24 @@ describe('device auth integration', () => {
       expires_in: 3600,
       token_type: 'Bearer',
     });
+  });
+
+  it('returns custom verification_uri when DEVICE_AUTH_VERIFICATION_URI env var is set', async () => {
+    vi.stubEnv('DEVICE_AUTH_VERIFICATION_URI', 'http://localhost:3000/activate');
+    await app.close();
+    app = await createApp({
+      redis: new RedisMock() as unknown as Redis,
+      verifier: new MockVerifier(),
+    });
+    await app.ready();
+
+    const issueResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/device',
+    });
+
+    expect(issueResponse.statusCode).toBe(201);
+    const issueBody = issueResponse.json<{ verification_uri: string }>();
+    expect(issueBody.verification_uri).toBe('http://localhost:3000/activate');
   });
 });
