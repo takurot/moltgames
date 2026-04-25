@@ -170,9 +170,7 @@ describe('Runner integration', () => {
         sentTools.push(payload.tool);
 
         // Send ok FIRST, then tools/list_changed 30 ms later (simulates the race)
-        socket.send(
-          JSON.stringify({ request_id: payload.request_id, status: 'ok', result: {} }),
-        );
+        socket.send(JSON.stringify({ request_id: payload.request_id, status: 'ok', result: {} }));
         setTimeout(() => {
           socket.send(
             JSON.stringify({
