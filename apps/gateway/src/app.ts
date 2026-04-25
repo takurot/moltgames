@@ -15,6 +15,7 @@ import {
   type ToolCallResponse,
 } from '@moltgames/mcp-protocol';
 import type { JsonValue, Match, TurnEvent, TurnEventSeat } from '@moltgames/domain';
+import { isTerminalMatchStatus } from '@moltgames/domain';
 import WebSocket, { type RawData } from 'ws';
 
 import {
@@ -674,25 +675,45 @@ export const createApp = async (options: AppOptions = {}) => {
     session.reconnectDeadlineAtMs = Date.now() + reconnectGraceMs;
 
     session.forfeitTimer = setTimeout(() => {
-      sessionsById.delete(session.id);
-      sessionIdByMatchAgent.delete(toSessionLookupKey(session.matchId, session.agentId));
-      session.forfeitTimer = null;
-      session.reconnectDeadlineAtMs = null;
+      void (async () => {
+        sessionsById.delete(session.id);
+        sessionIdByMatchAgent.delete(toSessionLookupKey(session.matchId, session.agentId));
+        session.forfeitTimer = null;
+        session.reconnectDeadlineAtMs = null;
 
-      void matchActionRateLimiter.clear(session.matchId).catch((error: unknown) => {
-        app.log.warn(
-          { error, matchId: session.matchId },
-          'Failed to clear websocket action rate limit state after forfeit',
-        );
-      });
+        void matchActionRateLimiter.clear(session.matchId).catch((error: unknown) => {
+          app.log.warn(
+            { error, matchId: session.matchId },
+            'Failed to clear websocket action rate limit state after forfeit',
+          );
+        });
 
-      // Transition match status to ABORTED (Issue #38)
-      matchRepository.updateStatus(session.matchId, 'ABORTED').catch((err: unknown) => {
-        app.log.warn(
-          { error: err, matchId: session.matchId },
-          'Failed to update match status to ABORTED',
-        );
-      });
+        // Guard against overwriting a terminal match state (Issue #74).
+        // Check the in-memory cache first (fast path), then fall back to the
+        // repository in case the match ended via a path that didn't populate the cache.
+        const skipForfeit = endedMatchIds.has(session.matchId)
+          ? true
+          : await matchRepository
+              .get(session.matchId)
+              .then((m) => m !== null && isTerminalMatchStatus(m.status))
+              .catch(() => false);
+
+        if (skipForfeit) {
+          app.log.info(
+            { matchId: session.matchId },
+            'Skipping forfeit: match already in terminal state',
+          );
+          return;
+        }
+
+        // Transition match status to ABORTED (Issue #38)
+        matchRepository.updateStatus(session.matchId, 'ABORTED').catch((err: unknown) => {
+          app.log.warn(
+            { error: err, matchId: session.matchId },
+            'Failed to update match status to ABORTED',
+          );
+        });
+      })();
     }, reconnectGraceMs);
   };
 
