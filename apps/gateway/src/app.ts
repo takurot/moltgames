@@ -785,11 +785,16 @@ export const createApp = async (options: AppOptions = {}) => {
 
       const timer = setTimeout(() => {
         activationTimersByMatch.delete(matchId);
-        void matchRepository.get(matchId).then(async (m) => {
-          if (m?.status === 'WAITING_AGENT_CONNECT') {
-            await matchRepository.save({ ...m, status: 'CANCELLED' });
+        void (async () => {
+          try {
+            const m = await matchRepository.get(matchId);
+            if (m?.status === 'WAITING_AGENT_CONNECT') {
+              await matchRepository.save({ ...m, status: 'CANCELLED' });
+            }
+          } catch (err) {
+            app.log.warn({ matchId, err }, 'activation timeout: failed to cancel match');
           }
-        });
+        })();
       }, activationTimeoutMs);
       activationTimersByMatch.set(matchId, timer);
       return;
@@ -1910,6 +1915,10 @@ export const createApp = async (options: AppOptions = {}) => {
     sessionsById.clear();
     sessionIdByMatchAgent.clear();
     spectatorSessionsByMatch.clear();
+    for (const timer of activationTimersByMatch.values()) {
+      clearTimeout(timer);
+    }
+    activationTimersByMatch.clear();
   });
 
   return app;
