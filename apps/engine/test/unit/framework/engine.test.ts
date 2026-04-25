@@ -161,7 +161,7 @@ describe('Engine', () => {
     engine.registerPlugin(new MockGamePlugin());
   });
 
-  it('should start a match', async () => {
+  it('should start a match without setting turnStartedAtMs', async () => {
     const matchId = 'match-1';
     await engine.startMatch(matchId, 'test-game', 123);
 
@@ -178,7 +178,25 @@ describe('Engine', () => {
         turnTimeoutSec: '30',
       }),
     );
-    expect(Number(meta?.turnStartedAtMs)).toBeGreaterThan(0);
+    // turnStartedAtMs must NOT be set at match creation — timer starts only on activation
+    expect(meta?.turnStartedAtMs).toBeUndefined();
+  });
+
+  it('activateMatch sets turnStartedAtMs in Redis meta', async () => {
+    const matchId = 'match-activate-1';
+    await engine.startMatch(matchId, 'test-game', 42);
+
+    const before = await redisManager.getMatchMeta(matchId);
+    expect(before?.turnStartedAtMs).toBeUndefined();
+
+    const beforeMs = Date.now();
+    await engine.activateMatch(matchId);
+    const afterMs = Date.now();
+
+    const meta = await redisManager.getMatchMeta(matchId);
+    const ts = Number(meta?.turnStartedAtMs);
+    expect(ts).toBeGreaterThanOrEqual(beforeMs);
+    expect(ts).toBeLessThanOrEqual(afterMs);
   });
 
   it('should persist fallback rule metadata from plugin state when no registry is configured', async () => {

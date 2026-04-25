@@ -126,6 +126,7 @@ export interface AppOptions {
   verifier?: FirebaseIdTokenVerifier;
   engineClient?: GatewayEngineClient;
   reconnectGraceMs?: number;
+  activationTimeoutMs?: number;
   ratingRepository?: RatingRepository;
   leaderboardCache?: LeaderboardCache;
   internalTaskAuthToken?: string;
@@ -156,6 +157,7 @@ export interface GatewayEngineClient {
     },
   ): Promise<GatewayEngineToolCallResponse>;
   getMatchMeta(matchId: string): Promise<{ gameId: string; ruleVersion?: string | null } | null>;
+  activateMatch?: (matchId: string) => Promise<void>;
 }
 
 interface AgentSession {
@@ -279,6 +281,9 @@ const createDefaultEngineClient = (): GatewayEngineClient => {
       } catch {
         return null;
       }
+    },
+    activateMatch: async (matchId) => {
+      await client.post(`/matches/${encodeURIComponent(matchId)}/activate`, {});
     },
   };
 };
@@ -615,6 +620,7 @@ export const createApp = async (options: AppOptions = {}) => {
   });
   const engineClient = options.engineClient ?? createDefaultEngineClient();
   const reconnectGraceMs = options.reconnectGraceMs ?? DEFAULT_RECONNECT_GRACE_MS;
+  const activationTimeoutMs = options.activationTimeoutMs ?? 60_000;
 
   const isTestOrNoFirebase = process.env.NODE_ENV === 'test' || getApps().length === 0;
   const replayRepository =
@@ -660,6 +666,7 @@ export const createApp = async (options: AppOptions = {}) => {
 
   const sessionsById = new Map<string, AgentSession>();
   const sessionIdByMatchAgent = new Map<string, string>();
+  const activationTimersByMatch = new Map<string, NodeJS.Timeout>();
   const spectatorSessionsByMatch = new Map<string, Map<string, SpectatorSession>>();
 
   const clearSessionTimer = (session: AgentSession): void => {
@@ -762,7 +769,7 @@ export const createApp = async (options: AppOptions = {}) => {
     const newParticipant = { uid, agentId, role: 'PLAYER' as const };
 
     if (existing === null) {
-      // First agent connecting — create the match record
+      // First agent connecting — create the match record and start activation timeout
       const meta = await engineClient.getMatchMeta(matchId);
       const gameId = meta?.gameId ?? 'unknown';
       const ruleVersion = meta?.ruleVersion ?? 'unknown';
@@ -775,6 +782,16 @@ export const createApp = async (options: AppOptions = {}) => {
         ruleVersion,
         region,
       });
+
+      const timer = setTimeout(() => {
+        activationTimersByMatch.delete(matchId);
+        void matchRepository.get(matchId).then(async (m) => {
+          if (m?.status === 'WAITING_AGENT_CONNECT') {
+            await matchRepository.save({ ...m, status: 'CANCELLED' });
+          }
+        });
+      }, activationTimeoutMs);
+      activationTimersByMatch.set(matchId, timer);
       return;
     }
 
@@ -788,14 +805,20 @@ export const createApp = async (options: AppOptions = {}) => {
       (s) => s.matchId === matchId,
     ).length;
 
-    const shouldStartMatch =
-      connectedCount >= 2 &&
-      (existing.status === 'CREATED' ||
-        existing.status === 'WAITING_AGENT_CONNECT' ||
-        existing.status === 'READY');
+    // Only allow activation from WAITING_AGENT_CONNECT to prevent re-activation on reconnect
+    const shouldActivate = connectedCount >= 2 && existing.status === 'WAITING_AGENT_CONNECT';
 
-    if (shouldStartMatch) {
-      // Both agents connected for the first time — transition to IN_PROGRESS
+    if (shouldActivate) {
+      // Clear activation timeout — second agent arrived in time
+      const timer = activationTimersByMatch.get(matchId);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        activationTimersByMatch.delete(matchId);
+      }
+
+      // Reset turnStartedAtMs in the engine — timer begins now
+      await engineClient.activateMatch?.(matchId);
+
       const startedMatch: Match = {
         ...existing,
         participants,

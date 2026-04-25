@@ -109,6 +109,7 @@ const makeEngineClient = (opts?: { terminateOnFirstCall?: boolean }): GatewayEng
     gameId: 'prompt-injection-arena',
     ruleVersion: '1.0.0',
   })),
+  activateMatch: vi.fn(async () => undefined),
 });
 
 describe('Match status lifecycle (Issue #38)', () => {
@@ -132,6 +133,7 @@ describe('Match status lifecycle (Issue #38)', () => {
   const startApp = async (
     engineClient: GatewayEngineClient,
     matchRepo: InMemoryMatchRepository,
+    extraOptions: { activationTimeoutMs?: number } = {},
   ) => {
     const app = await createApp({
       redis: new RedisMock() as unknown as Redis,
@@ -141,6 +143,7 @@ describe('Match status lifecycle (Issue #38)', () => {
       replayRepository: new InMemoryReplayRepository(),
       replayStorage: new InMemoryReplayStorage(),
       matchRepository: matchRepo,
+      ...extraOptions,
     });
     await app.listen({ host: '127.0.0.1', port: 0 });
     apps.push(app);
@@ -303,6 +306,41 @@ describe('Match status lifecycle (Issue #38)', () => {
     const body = res.json() as { match: { status: string; endedAt?: string } };
     expect(body.match.status).toBe('FINISHED');
     expect(body.match.endedAt).toBeDefined();
+  });
+
+  it('calls activateMatch on the engine client when both agents connect', async () => {
+    const matchRepo = new InMemoryMatchRepository();
+    const engineClient = makeEngineClient();
+    const app = await startApp(engineClient, matchRepo);
+
+    const token1 = await issueToken(app, 'match-activate-both', 'agent-1');
+    const token2 = await issueToken(app, 'match-activate-both', 'agent-2');
+
+    await connectAgent(app, token1);
+    await connectAgent(app, token2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(engineClient.activateMatch).toHaveBeenCalledWith('match-activate-both');
+  });
+
+  it('match transitions to CANCELLED when activation timeout expires before second agent connects', async () => {
+    const matchRepo = new InMemoryMatchRepository();
+    const app = await startApp(makeEngineClient(), matchRepo, { activationTimeoutMs: 100 });
+
+    const token1 = await issueToken(app, 'match-timeout', 'agent-1');
+    await connectAgent(app, token1);
+
+    // Wait for activation timeout + buffer
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/matches/match-timeout',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { match: { status: string } };
+    expect(body.match.status).toBe('CANCELLED');
   });
 
   it('match transitions to ABORTED when reconnect grace period expires', async () => {
